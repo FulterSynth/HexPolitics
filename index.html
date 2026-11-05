@@ -118,3 +118,589 @@
             <button class="btn-cancel" onclick="closePathModal()">Скасувати</button>
         </div>
     </div>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, set, get, child, onValue, update, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDrQeerlWPJ0d_gZ3acvW54FQmihdAQqK4",
+            authDomain: "kovel-game.firebaseapp.com",
+            databaseURL: "https://kovel-game-default-rtdb.europe-west1.firebasedatabase.app",
+            projectId: "kovel-game",
+            storageBucket: "kovel-game.firebasestorage.app",
+            messagingSenderId: "1028978690479",
+            appId: "1:1028978690479:web:c37e96a9b07175d325c75a"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        // ===== КОНСТАНТИ HEXPOLITICS v0.1 =====
+        const ADMIN_USERNAME = "admin";
+        const CURRENT_VERSION = "0.1.0";
+        const GRID_ROWS = 25;
+        const GRID_COLS = 25;
+        const HEX_RADIUS = 26;
+        const STATIC_SSAA = 1;
+
+        // ===== СТАН ГРИ =====
+        let mode = "login";
+        let currentUsername = "";
+        let userResources = 50;
+        let hexWorldData = {};
+        let gameLoopInterval = null;
+        let unsubWorld = null;
+        let unsubUser = null;
+        let gameLoopBusy = false;
+        let selectedHexCoords = null;
+
+        let canvas = null, ctx = null, dpr = 1, viewW = 0, viewH = 0;
+        let scale = 0.75, panX = 0, panY = 0;
+        let staticCanvas = null, staticCtx = null, staticWorldW = 0, staticWorldH = 0, staticDirty = true;
+        let playerColorCache = {};
+        let hoveredHex = null;
+        let isDragging = false, dragStartX = 0, dragStartY = 0, dragMoved = false, isClick = true;
+        const activePointers = new Map();
+        let renderScheduled = false, rafHandle = 0;
+
+        function invalidateColorCache() { playerColorCache = {}; }
+
+        function getPlayerColor(username) {
+            if (playerColorCache[username]) return playerColorCache[username];
+            let color = '#3b82f6';
+            for (const k in hexWorldData) {
+                const h = hexWorldData[k];
+                if (h.owner === username && h.color) { color = h.color; break; }
+            }
+            playerColorCache[username] = color;
+            return color;
+        }
+
+        // ===== ГЕОМЕТРІЯ ГЕКСІВ =====
+        function hexToPixel(r, c) {
+            return {
+                x: HEX_RADIUS * Math.sqrt(3) * (c + 0.5 * (r & 1)) + HEX_RADIUS,
+                y: HEX_RADIUS * 1.5 * r + HEX_RADIUS
+            };
+        }
+
+        function getNeighbors(r, c) {
+            const isOdd = r & 1;
+            const directions = isOdd
+                ? [{ r: -1, c: 0 }, { r: -1, c: 1 }, { r: 0, c: -1 }, { r: 0, c: 1 }, { r: 1, c: 0 }, { r: 1, c: 1 }]
+                : [{ r: -1, c: -1 }, { r: -1, c: 0 }, { r: 0, c: -1 }, { r: 0, c: 1 }, { r: 1, c: -1 }, { r: 1, c: 0 }];
+            const neighbors = [];
+            for (const d of directions) {
+                const nr = r + d.r, nc = c + d.c;
+                if (nr >= 0 && nr < GRID_ROWS && nc >= 0 && nc < GRID_COLS) {
+                    neighbors.push({ r: nr, c: nc, key: `${nr}_${nc}` });
+                }
+            }
+            return neighbors;
+        }
+
+        function pixelToHex(px, py) {
+            const R = HEX_RADIUS;
+            const x = px - R, y = py - R;
+            const q = (Math.sqrt(3) / 3 * x - 1 / 3 * y) / R;
+            const rr = (2 / 3 * y) / R;
+            const s = -q - rr;
+            let rq = Math.round(q), rr2 = Math.round(rr), rs = Math.round(s);
+            const dq = Math.abs(rq - q), dr = Math.abs(rr2 - rr), ds = Math.abs(rs - s);
+            if (dq > dr && dq > ds) rq = -rr2 - rs;
+            else if (dr > ds) rr2 = -rq - rs;
+            const col = rq + (rr2 - (rr2 & 1)) / 2;
+            const row = rr2;
+            if (row < 0 || row >= GRID_ROWS || col < 0 || col >= GRID_COLS) return null;
+            return { r: row, c: col };
+        }
+
+        function pathHex(g, cx, cy, radius) {
+            g.beginPath();
+            for (let i = 0; i < 6; i++) {
+                const a = Math.PI / 180 * (60 * i - 30);
+                const x = cx + radius * Math.cos(a);
+                const y = cy + radius * Math.sin(a);
+                if (i === 0) g.moveTo(x, y);
+                else g.lineTo(x, y);
+            }
+            g.closePath();
+        }
+
+        function hideLoader() {
+            const l = document.getElementById('update-loader');
+            if (!l) return;
+            l.style.opacity = '0';
+            setTimeout(() => l.style.display = 'none', 500);
+        }
+
+        // ===== ФУНКЦІЯ ВАЙПУ СЕРВЕРА ДЛЯ ADMIN =====
+        window.triggerAdminWipe = async function() {
+            if (currentUsername.toLowerCase() !== ADMIN_USERNAME.toLowerCase()) {
+                alert("Ця команда доступна лише адміністратору!");
+                return;
+            }
+            if (!confirm("УВАГА! Ви дійсно хочете повністю очистити (вайпнути) весь світ карти?")) return;
+            try {
+                await remove(ref(db, 'world_hexes'));
+                alert("Сервер успішно очищено (вайпнуто)!");
+                hexWorldData = {};
+                staticDirty = true;
+                scheduleRender();
+            } catch (err) {
+                alert("Помилка вайпу: " + err.message);
+            }
+        };
+        // ===== АВТОРИЗАЦІЯ ТА УПРАВЛІННЯ СПЕЦІАЛІЗАЦІЄЮ =====
+        window.switchAuthMode = function(targetMode) {
+            mode = targetMode;
+            const btn = document.getElementById('auth-btn');
+            const toggleMode = document.getElementById('auth-toggle-mode');
+
+            if (mode === 'login') {
+                btn.innerText = 'Увійти';
+                toggleMode.innerText = "Зареєструвати новий акаунт";
+                toggleMode.setAttribute('onclick', "switchAuthMode('register')");
+            } else if (mode === 'register') {
+                btn.innerText = "Зареєструватись";
+                toggleMode.innerText = "Вже є акаунт? Увійти";
+                toggleMode.setAttribute('onclick', "switchAuthMode('login')");
+            }
+        }
+
+        window.handleAuth = async function() {
+            const user = document.getElementById('username').value.trim();
+            const pass = document.getElementById('password').value.trim();
+            if (!user || !pass) { alert("Заповніть усі поля!"); return; }
+            const dbRef = ref(db);
+
+            try {
+                if (mode === 'register') {
+                    const snapshot = await get(child(dbRef, `users/${user}`));
+                    if (snapshot.exists()) { alert("Такий користувач вже існує!"); return; }
+                    
+                    await set(ref(db, 'users/' + user), { 
+                        password: pass, 
+                        resources: 50, 
+                        lastOnline: Date.now() 
+                    });
+                    alert("Акаунт успішно створено!");
+                    switchAuthMode('login');
+                } else if (mode === 'login') {
+                    const snapshot = await get(child(dbRef, `users/${user}`));
+                    if (!snapshot.exists() || snapshot.val().password !== pass) { 
+                        alert("Невірний логін або пароль!"); 
+                        return; 
+                    }
+
+                    currentUsername = user;
+                    const userData = snapshot.val();
+                    const worldSnap = await get(child(dbRef, 'world_hexes'));
+                    hexWorldData = worldSnap.exists() ? worldSnap.val() : {};
+                    invalidateColorCache();
+
+                    document.getElementById('auth-screen').style.display = 'none';
+                    document.getElementById('game-container').style.display = 'block';
+                    document.getElementById('current-user-display').innerText = user;
+
+                    // Якщо заходить admin — показуємо кнопку вайпу
+                    if (currentUsername.toLowerCase() === ADMIN_USERNAME.toLowerCase()) {
+                        document.getElementById('admin-wipe-btn').style.display = 'inline-block';
+                    } else {
+                        document.getElementById('admin-wipe-btn').style.display = 'none';
+                    }
+
+                    initCanvas();
+                    setupViewportControls();
+                    listenToWorldData();
+                    listenToUserData();
+                    startGameLoop();
+                }
+            } catch (error) { alert('Помилка авторизації: ' + error.message); }
+        }
+
+        window.logout = async function() {
+            if (currentUsername) {
+                try { await update(ref(db, `users/${currentUsername}`), { lastOnline: Date.now() }); } catch (e) {}
+            }
+            if (gameLoopInterval) clearInterval(gameLoopInterval);
+            if (unsubWorld) unsubWorld();
+            if (unsubUser) unsubUser();
+            currentUsername = "";
+            document.getElementById('game-container').style.display = 'none';
+            document.getElementById('auth-screen').style.display = 'flex';
+        }
+
+        // Обробка кліку по гексу для встановлення головної будівлі
+        function handleHexClick(r, c) {
+            const key = `${r}_${c}`;
+            const hexInfo = hexWorldData[key];
+
+            if (hexInfo && hexInfo.owner) return;
+
+            let hasCore = false;
+            for (const k in hexWorldData) {
+                if (hexWorldData[k].owner === currentUsername) { hasCore = true; break; }
+            }
+
+            if (!hasCore) {
+                selectedHexCoords = { r, c };
+                document.getElementById('path-modal').style.display = 'block';
+            }
+        }
+
+        window.closePathModal = function() {
+            document.getElementById('path-modal').style.display = 'none';
+            selectedHexCoords = null;
+        }
+
+        window.selectPath = async function(pathType) {
+            if (!selectedHexCoords) return;
+            const key = `${selectedHexCoords.r}_${selectedHexCoords.c}`;
+            
+            const pathColors = {
+                hunters: '#f97316',  // Помаранчевий
+                farmers: '#10b981',  // Зелений
+                shamans: '#8b5cf6'   // Фіолетовий
+            };
+
+            const newCore = {
+                owner: currentUsername,
+                color: pathColors[pathType] || '#3b82f6',
+                type: 'core',
+                pathSpecialization: pathType,
+                createdAt: Date.now()
+            };
+
+            try {
+                await update(ref(db, `world_hexes/${key}`), newCore);
+                closePathModal();
+            } catch (err) {
+                alert("Помилка створення споруди: " + err.message);
+            }
+        }
+        // ===== CANVAS РЕНДЕР-ЯДРО (60 FPS) =====
+        function initCanvas() {
+            canvas = document.getElementById('hex-canvas');
+            if (!canvas) return;
+            ctx = canvas.getContext('2d', { alpha: false });
+            
+            ctx.imageSmoothingEnabled = true;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+
+            staticCanvas = document.createElement('canvas');
+            staticCtx = staticCanvas.getContext('2d', { alpha: true });
+            
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            staticDirty = true;
+            scheduleRender();
+        }
+
+        function resizeCanvas() {
+            const vp = document.getElementById('hex-grid-viewport');
+            if (!vp || !canvas) return;
+            viewW = vp.clientWidth;
+            viewH = vp.clientHeight;
+            dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+
+            canvas.width = Math.round(viewW * dpr);
+            canvas.height = Math.round(viewH * dpr);
+            canvas.style.width = viewW + 'px';
+            canvas.style.height = viewH + 'px';
+            staticDirty = true;
+            scheduleRender();
+        }
+
+        function scheduleRender() {
+            if (renderScheduled) return;
+            renderScheduled = true;
+            rafHandle = requestAnimationFrame(renderFrame);
+        }
+
+        function renderFrame(ts) {
+            renderScheduled = false;
+            if (!ctx || !canvas) return;
+
+            if (staticDirty) rebuildStaticLayer();
+
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.fillStyle = '#0b132b';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.setTransform(
+                dpr * scale, 0,
+                0, dpr * scale,
+                dpr * panX, dpr * panY
+            );
+
+            if (staticCanvas && staticWorldW > 0) {
+                ctx.drawImage(staticCanvas, 0, 0, staticWorldW, staticWorldH);
+            }
+
+            // Підсвічування гекса під курсором
+            if (hoveredHex) {
+                const { x, y } = hexToPixel(hoveredHex.r, hoveredHex.c);
+                pathHex(ctx, x, y, HEX_RADIUS);
+                ctx.strokeStyle = '#38bdf8';
+                ctx.lineWidth = 2.5 / scale;
+                ctx.stroke();
+            }
+
+            rafHandle = requestAnimationFrame(renderFrame);
+        }
+
+        function rebuildStaticLayer() {
+            staticDirty = false;
+            staticWorldW = GRID_COLS * HEX_RADIUS * Math.sqrt(3) + HEX_RADIUS * 2;
+            staticWorldH = GRID_ROWS * HEX_RADIUS * 1.5 + HEX_RADIUS * 2;
+
+            const W = Math.ceil(staticWorldW * STATIC_SSAA);
+            const H = Math.ceil(staticWorldH * STATIC_SSAA);
+            if (staticCanvas.width !== W || staticCanvas.height !== H) {
+                staticCanvas.width = W;
+                staticCanvas.height = H;
+            }
+
+            const g = staticCtx;
+            g.setTransform(1, 0, 0, 1, 0, 0);
+            g.clearRect(0, 0, W, H);
+            g.setTransform(STATIC_SSAA, 0, 0, STATIC_SSAA, 0, 0);
+
+            // 1. Малюємо загальну сітку карти
+            g.strokeStyle = '#1b263b';
+            g.lineWidth = 1.5;
+            for (let r = 0; r < GRID_ROWS; r++) {
+                for (let c = 0; c < GRID_COLS; c++) {
+                    const { x, y } = hexToPixel(r, c);
+                    pathHex(g, x, y, HEX_RADIUS);
+                    g.stroke();
+                }
+            }
+
+            // 2. Малюємо головні споруди та векторні іконки замість емоджі
+            for (const key in hexWorldData) {
+                const h = hexWorldData[key];
+                if (!h || !h.owner) continue;
+
+                const parts = key.split('_');
+                const r = parseInt(parts[0]), c = parseInt(parts[1]);
+                const { x, y } = hexToPixel(r, c);
+
+                // Рендеринг векторної споруди
+                drawVectorCore(g, x, y, h.pathSpecialization, h.color || '#3b82f6');
+            }
+
+            // 3. Малюємо красиві границі (бордюри) навколо територій гравців
+            for (const key in hexWorldData) {
+                const h = hexWorldData[key];
+                if (!h || !h.owner) continue;
+
+                const parts = key.split('_');
+                const r = parseInt(parts[0]), c = parseInt(parts[1]);
+                const { x, y } = hexToPixel(r, c);
+
+                // Перевіряємо сусіДів: якщо сусідній гекс не належить цьому ж гравцю, малюємо частину границі
+                const neighbors = getNeighbors(r, c);
+                g.strokeStyle = h.color || '#3b82f6';
+                g.lineWidth = 3;
+
+                // Для спрощення малюємо контур гекса з акцентом на володіння
+                pathHex(g, x, y, HEX_RADIUS - 1);
+                g.stroke();
+            }
+        }
+
+        // Векторний Canvas 2D малюнок головних будівель (без емоджі)
+        function drawVectorCore(g, cx, cy, spec, color) {
+            g.save();
+            // Базовий круговий платц для споруди
+            g.fillStyle = '#1e293b';
+            g.strokeStyle = color;
+            g.lineWidth = 2.5;
+            g.beginPath();
+            g.arc(cx, cy, 14, 0, Math.PI * 2);
+            g.fill();
+            g.stroke();
+
+            // Векторна іконка всередині
+            g.fillStyle = color;
+            if (spec === 'hunters') {
+                // Стріла / Спис (Мисливці)
+                g.beginPath();
+                g.moveTo(cx - 6, cy + 6);
+                g.lineTo(cx + 6, cy - 6);
+                g.strokeStyle = '#fbbf24';
+                g.lineWidth = 3;
+                g.stroke();
+            } else if (spec === 'farmers') {
+                // Колосок / Росточок (Землеробство)
+                g.beginPath();
+                g.arc(cx, cy, 5, 0, Math.PI * 2);
+                g.fillStyle = '#34d399';
+                g.fill();
+            } else if (spec === 'shamans') {
+                // Кристал / Око (Шаманізм)
+                g.beginPath();
+                g.moveTo(cx, cy - 7);
+                g.lineTo(cx + 5, cy);
+                g.lineTo(cx, cy + 7);
+                g.lineTo(cx - 5, cy);
+                g.closePath();
+                g.fillStyle = '#a78bfa';
+                g.fill();
+            }
+            g.restore();
+        }
+
+        // ===== УПРАВЛІННЯ В'ЮПОРТОМ (Пан та Зум) =====
+        function setupViewportControls() {
+            const viewport = document.getElementById('hex-grid-viewport');
+            if (!viewport || viewport._controlsSetup) return;
+            viewport._controlsSetup = true;
+
+            const clampScale = (s) => Math.min(Math.max(0.15, s), 2.5);
+
+            viewport.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const rect = viewport.getBoundingClientRect();
+                const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+                const oldScale = scale;
+                const ns = clampScale(scale * (e.deltaY < 0 ? 1.08 : 0.92));
+                panX = mx - (mx - panX) * (ns / oldScale);
+                panY = my - (my - panY) * (ns / oldScale);
+                scale = ns;
+                scheduleRender();
+            }, { passive: false });
+
+            viewport.addEventListener('pointerdown', (e) => {
+                viewport.setPointerCapture(e.pointerId);
+                activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+                if (activePointers.size === 1) {
+                    isDragging = true;
+                    isClick = true;
+                    dragMoved = false;
+                    dragStartX = e.clientX - panX;
+                    dragStartY = e.clientY - panY;
+                }
+            });
+
+            viewport.addEventListener('pointermove', (e) => {
+                if (!activePointers.has(e.pointerId)) {
+                    updateHover(e);
+                    return;
+                }
+                activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+                if (!isDragging) return;
+                const dx = e.clientX - panX - dragStartX;
+                const dy = e.clientY - panY - dragStartY;
+                if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
+                    isClick = false;
+                    dragMoved = true;
+                }
+                panX = e.clientX - dragStartX;
+                panY = e.clientY - dragStartY;
+                scheduleRender();
+            });
+
+            const endPointer = (e) => {
+                const wasSingle = activePointers.size === 1;
+                activePointers.delete(e.pointerId);
+
+                if (activePointers.size === 0) {
+                    isDragging = false;
+                    if (isClick && !dragMoved && wasSingle) {
+                        handleCanvasClick(e);
+                    }
+                }
+            };
+            viewport.addEventListener('pointerup', endPointer);
+            viewport.addEventListener('pointercancel', endPointer);
+        }
+
+        function updateHover(e) {
+            const vp = document.getElementById('hex-grid-viewport');
+            const rect = vp.getBoundingClientRect();
+            const sx = e.clientX - rect.left;
+            const sy = e.clientY - rect.top;
+
+            const wx = (sx - panX) / scale;
+            const wy = (sy - panY) / scale;
+
+            const hex = pixelToHex(wx, wy);
+            if (hex) {
+                if (!hoveredHex || hoveredHex.r !== hex.r || hoveredHex.c !== hex.c) {
+                    hoveredHex = hex;
+                    scheduleRender();
+                }
+            } else if (hoveredHex) {
+                hoveredHex = null;
+                scheduleRender();
+            }
+        }
+
+        function handleCanvasClick(e) {
+            const vp = document.getElementById('hex-grid-viewport');
+            const rect = vp.getBoundingClientRect();
+            const sx = e.clientX - rect.left;
+            const sy = e.clientY - rect.top;
+
+            const wx = (sx - panX) / scale;
+            const wy = (sy - panY) / scale;
+
+            const hex = pixelToHex(wx, wy);
+            if (hex) handleHexClick(hex.r, hex.c);
+        }
+
+        window.zoomIn = function() { scale = Math.min(2.5, scale * 1.2); scheduleRender(); };
+        window.zoomOut = function() { scale = Math.max(0.15, scale / 1.2); scheduleRender(); };
+
+        // ===== СЛУХАЧІ ДАНИХ ТА ІГРОВИЙ ЦИКЛ =====
+        function listenToWorldData() {
+            if (unsubWorld) unsubWorld();
+            unsubWorld = onValue(ref(db, 'world_hexes'), (snapshot) => {
+                hexWorldData = snapshot.exists() ? snapshot.val() : {};
+                staticDirty = true;
+                scheduleRender();
+            });
+        }
+
+        function listenToUserData() {
+            if (unsubUser) unsubUser();
+            unsubUser = onValue(ref(db, `users/${currentUsername}`), (snapshot) => {
+                if (!snapshot.exists()) return;
+                const data = snapshot.val();
+                userResources = Math.floor(data.resources || 50);
+                const foodEl = document.getElementById('user-food-display');
+                if (foodEl) foodEl.innerText = userResources;
+            });
+        }
+
+        function startGameLoop() {
+            if (gameLoopInterval) clearInterval(gameLoopInterval);
+            gameLoopInterval = setInterval(async () => {
+                if (!currentUsername || gameLoopBusy) return;
+                gameLoopBusy = true;
+                try {
+                    // Логіка оновлення ігрового процесу
+                } catch (err) { console.error('Помилка циклу:', err); }
+                finally { gameLoopBusy = false; }
+            }, 3000);
+        }
+
+        // ===== ІНІЦІАЛІЗАЦІЯ =====
+        window.addEventListener('load', () => {
+            setTimeout(() => { hideLoader(); }, 800);
+
+            window.addEventListener('beforeunload', () => {
+                if (currentUsername) {
+                    try { update(ref(db, `users/${currentUsername}`), { lastOnline: Date.now() }); } catch (e) {}
+                }
+            });
+        });
+    </script>
+</body>
+</html>
