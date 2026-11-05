@@ -1,1 +1,1081 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>HexPolitics</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        body, html { height: 100%; width: 100%; overflow: hidden; background: #0a0e17; color: #e2e8f0; user-select: none; -webkit-user-select: none; }
 
+        #auth-screen { position: fixed; inset: 0; background: #0a0e17; display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .auth-box { background: #151b2b; padding: 24px; border-radius: 12px; width: 320px; max-width: 90vw; display: flex; flex-direction: column; gap: 12px; border: 1px solid #1e293b; }
+        .auth-box h2 { text-align: center; color: #38bdf8; font-size: 22px; letter-spacing: 2px; margin-bottom: 8px; }
+        .auth-box input { padding: 12px; border-radius: 8px; border: 1px solid #1e293b; background: #0a0e17; color: #e2e8f0; outline: none; font-size: 14px; }
+        .auth-box input:focus { border-color: #38bdf8; }
+        .auth-box button { padding: 12px; border-radius: 8px; border: none; background: #38bdf8; color: #0a0e17; font-weight: 700; cursor: pointer; font-size: 14px; }
+        .auth-box button:hover { background: #0ea5e9; }
+        .auth-toggle { text-align: center; font-size: 12px; color: #64748b; cursor: pointer; }
+        .auth-toggle:hover { color: #38bdf8; }
+
+        #game-container { display: none; height: 100vh; width: 100vw; position: relative; overflow: hidden; }
+
+        #top-bar { position: absolute; top: 0; left: 0; right: 0; height: 48px; background: #151b2b; border-bottom: 1px solid #1e293b; display: flex; align-items: center; padding: 0 12px; gap: 12px; z-index: 100; overflow-x: auto; }
+        .resource-item { display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+        .resource-item .icon { font-size: 16px; }
+        .resource-item .value { color: #f8fafc; }
+        .resource-item .value.food { color: #4ade80; }
+        .resource-item .value.wood { color: #a16207; }
+        .resource-item .value.stone { color: #94a3b8; }
+        .resource-item .value.gold { color: #fbbf24; }
+
+        #map-canvas { position: absolute; top: 48px; left: 0; width: 100%; height: calc(100% - 48px - 56px); touch-action: none; cursor: grab; display: block; }
+        #map-canvas:active { cursor: grabbing; }
+
+        #bottom-tabs { position: absolute; bottom: 0; left: 0; right: 0; height: 56px; background: #151b2b; border-top: 1px solid #1e293b; display: flex; z-index: 100; }
+        .tab-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; background: none; border: none; color: #64748b; cursor: pointer; font-size: 10px; padding: 4px; transition: color 0.15s; }
+        .tab-btn .tab-icon { font-size: 20px; }
+        .tab-btn.active { color: #38bdf8; }
+        .tab-btn:hover { color: #94a3b8; }
+
+        #toast-container { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%); z-index: 900; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+        .toast { background: #1e293b; color: #e2e8f0; padding: 10px 16px; border-radius: 8px; font-size: 13px; border: 1px solid #334155; animation: toastIn 0.3s ease; max-width: 90vw; text-align: center; }
+        @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0a0e17; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    </style>
+</head>
+<body>
+
+    <!-- Авторизація -->
+    <div id="auth-screen">
+        <div class="auth-box">
+            <h2>HEXPOLITICS</h2>
+            <input type="text" id="username" placeholder="Логін" autocomplete="username">
+            <input type="password" id="password" placeholder="Пароль" autocomplete="current-password">
+            <div id="new-password-container" style="display:none;">
+                <input type="password" id="new-password" placeholder="Новий пароль">
+            </div>
+            <button id="auth-btn" onclick="handleAuth()">Увійти</button>
+            <div class="auth-toggle" id="auth-toggle-mode" onclick="switchAuthMode('register')">Немає акаунта? Зареєструватись</div>
+            <div class="auth-toggle" id="auth-toggle-pass" onclick="switchAuthMode('change-pass')" style="color:#475569;">Змінити пароль</div>
+        </div>
+    </div>
+
+    <!-- Гра -->
+    <div id="game-container">
+        <div id="top-bar">
+            <div class="resource-item"><span class="icon">🍞</span><span class="value food" id="res-food">0</span></div>
+            <div class="resource-item"><span class="icon">🪵</span><span class="value wood" id="res-wood">0</span></div>
+            <div class="resource-item"><span class="icon">🪨</span><span class="value stone" id="res-stone">0</span></div>
+            <div class="resource-item"><span class="icon">💰</span><span class="value gold" id="res-gold">0</span></div>
+            <div style="flex:1;"></div>
+            <div class="resource-item" style="font-size:11px; color:#64748b;" id="era-display">Епоха каменю</div>
+        </div>
+
+        <canvas id="map-canvas"></canvas>
+
+        <div id="bottom-tabs">
+            <button class="tab-btn active" data-tab="map" onclick="switchTab('map')"><span class="tab-icon">🗺️</span><span>Карта</span></button>
+            <button class="tab-btn" data-tab="science" onclick="switchTab('science')"><span class="tab-icon">🔬</span><span>Наука</span></button>
+            <button class="tab-btn" data-tab="build" onclick="switchTab('build')"><span class="tab-icon">🏗️</span><span>Будівлі</span></button>
+            <button class="tab-btn" data-tab="direction" onclick="switchTab('direction')"><span class="tab-icon">🧭</span><span>Напрямок</span></button>
+            <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')"><span class="tab-icon">⚙️</span><span>Налашт.</span></button>
+        </div>
+
+        <div id="tab-panel">
+            <div class="tab-content active" id="tab-map"><h3>🗺️ Карта</h3><p style="font-size:12px;color:#94a3b8;">Торкніться гекса, щоб взаємодіяти. Перетягуйте для переміщення, пінч/колесо для масштабу.</p></div>
+            <div class="tab-content" id="tab-science"><h3>🔬 Наука</h3><div id="science-list"></div></div>
+            <div class="tab-content" id="tab-build"><h3>🏗️ Будівлі</h3><div id="build-list"></div></div>
+            <div class="tab-content" id="tab-direction"><h3>🧭 Напрямок</h3><div id="direction-info"></div></div>
+            <div class="tab-content" id="tab-settings"><h3>⚙️ Налаштування</h3><div id="settings-content"></div></div>
+        </div>
+
+        <div id="toast-container"></div>
+    </div>
+
+    <!-- Модальне вікно вибору напрямку -->
+    <div id="direction-modal" class="modal">
+        <div class="modal-content">
+            <h3>🧭 Обери свій шлях</h3>
+            <p class="modal-sub">Кожен напрямок змінює механіки гри. Обирай уважно — змінити не можна.</p>
+            <div id="direction-cards"></div>
+            <button class="modal-btn" id="direction-confirm-btn" onclick="confirmDirection()" disabled>Підтвердити</button>
+        </div>
+    </div>
+
+    <!-- Модальне вікно вибору стартової позиції -->
+    <div id="start-modal" class="modal">
+        <div class="modal-content">
+            <h3>📍 Обери місце для Ратуші</h3>
+            <p class="modal-sub">Торкніться вільного гекса на карті (трава або ліс). Не можна ставити на воду чи камінь.</p>
+            <button class="modal-btn secondary" onclick="closeStartModal()">Скасувати</button>
+        </div>
+    </div>
+
+    <!-- Модальне вікно інформації про гекс -->
+    <div id="hex-modal" class="modal">
+        <div class="modal-content">
+            <h3 id="hex-modal-title">Гекс</h3>
+            <div id="hex-modal-body"></div>
+            <div id="hex-modal-buttons"></div>
+            <button class="modal-btn secondary" onclick="closeHexModal()">Закрити</button>
+        </div>
+    </div>
+        <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, set, get, child, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDrQeerlWPJ0d_gZ3acvW54FQmihdAQqK4",
+            authDomain: "kovel-game.firebaseapp.com",
+            databaseURL: "https://kovel-game-default-rtdb.europe-west1.firebasedatabase.app",
+            projectId: "kovel-game",
+            storageBucket: "kovel-game.firebasestorage.app",
+            messagingSenderId: "1028978690479",
+            appId: "1:1028978690479:web:c37e96a9b07175d325c75a"
+        };
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        const ADMIN_USERNAME = "admin";
+        const GRID_SIZE = 30;
+        const HEX_SIZE = 28;
+        const TICK_MS = 10000;
+
+        // ===== СТАН =====
+        let mode = "login";
+        let currentUsername = "";
+        let userData = {};
+        let worldData = {};
+        let unsubWorld = null;
+        let unsubUser = null;
+        let gameStarted = false;
+
+        // Canvas
+        let canvas, ctx, canvasW, canvasH;
+        let scale = 0.8;
+        let panX = 0, panY = 0;
+        let isDragging = false;
+        let dragStartX = 0, dragStartY = 0;
+        let isClick = true;
+        let renderPending = false;
+
+        // Вибір
+        let selectedHex = null;
+        let selectedDirection = null;
+        let awaitingStartPosition = false;
+        let currentTab = "map";
+
+        // ===== TOAST =====
+        window.showToast = function(msg, duration = 2500) {
+            const container = document.getElementById('toast-container');
+            const el = document.createElement('div');
+            el.className = 'toast';
+            el.textContent = msg;
+            container.appendChild(el);
+            setTimeout(() => {
+                el.style.opacity = '0';
+                el.style.transition = 'opacity 0.3s';
+                setTimeout(() => el.remove(), 300);
+            }, duration);
+        };
+
+        // ===== АВТОРИЗАЦІЯ =====
+        window.switchAuthMode = function(target) {
+            mode = target;
+            const btn = document.getElementById('auth-btn');
+            const toggleMode = document.getElementById('auth-toggle-mode');
+            const togglePass = document.getElementById('auth-toggle-pass');
+            const newPassContainer = document.getElementById('new-password-container');
+
+            if (mode === 'login') {
+                btn.innerText = 'Увійти';
+                toggleMode.innerText = 'Немає акаунта? Зареєструватись';
+                toggleMode.setAttribute('onclick', "switchAuthMode('register')");
+                togglePass.style.display = 'block';
+                newPassContainer.style.display = 'none';
+            } else if (mode === 'register') {
+                btn.innerText = 'Створити акаунт';
+                toggleMode.innerText = 'Вже є акаунт? Увійти';
+                toggleMode.setAttribute('onclick', "switchAuthMode('login')");
+                togglePass.style.display = 'none';
+                newPassContainer.style.display = 'none';
+            } else if (mode === 'change-pass') {
+                btn.innerText = 'Змінити пароль';
+                toggleMode.innerText = 'Повернутися до входу';
+                toggleMode.setAttribute('onclick', "switchAuthMode('login')");
+                togglePass.style.display = 'none';
+                newPassContainer.style.display = 'block';
+            }
+        };
+
+        window.handleAuth = async function() {
+            const user = document.getElementById('username').value.trim();
+            const pass = document.getElementById('password').value.trim();
+            if (!user || !pass) { showToast('Заповніть усі поля!'); return; }
+            const dbRef = ref(db);
+
+            try {
+                if (mode === 'register') {
+                    const snap = await get(child(dbRef, `users/${user}`));
+                    if (snap.exists()) { showToast('Такий користувач вже існує!'); return; }
+                    await set(ref(db, 'users/' + user), {
+                        password: pass,
+                        food: 0, wood: 0, stone: 0, gold: 0,
+                        direction: null,
+                        hasBase: false,
+                        techs: {},
+                        lastOnline: Date.now()
+                    });
+                    showToast('Акаунт створено!');
+                    switchAuthMode('login');
+                } else if (mode === 'login') {
+                    const snap = await get(child(dbRef, `users/${user}`));
+                    if (!snap.exists() || snap.val().password !== pass) { showToast('Невірний логін або пароль!'); return; }
+                    currentUsername = user;
+                    userData = snap.val();
+
+                    const worldSnap = await get(ref(db, 'world'));
+                    worldData = worldSnap.exists() ? worldSnap.val() : {};
+
+                    document.getElementById('auth-screen').style.display = 'none';
+                    document.getElementById('game-container').style.display = 'block';
+
+                    startGame();
+                } else if (mode === 'change-pass') {
+                    const newPass = document.getElementById('new-password').value.trim();
+                    if (!newPass) { showToast('Введіть новий пароль!'); return; }
+                    const snap = await get(child(dbRef, `users/${user}`));
+                    if (!snap.exists() || snap.val().password !== pass) { showToast('Невірний старий пароль!'); return; }
+                    await set(ref(db, `users/${user}/password`), newPass);
+                    showToast('Пароль змінено!');
+                    switchAuthMode('login');
+                }
+            } catch (e) { showToast('Помилка: ' + e.message); }
+        };
+
+        window.logout = async function() {
+            if (currentUsername) {
+                try { await update(ref(db, `users/${currentUsername}`), { lastOnline: Date.now() }); } catch (e) {}
+            }
+            if (unsubWorld) { unsubWorld(); unsubWorld = null; }
+            if (unsubUser) { unsubUser(); unsubUser = null; }
+            currentUsername = ""; userData = {}; worldData = {};
+            gameStarted = false;
+            document.getElementById('game-container').style.display = 'none';
+            document.getElementById('auth-screen').style.display = 'flex';
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+            switchAuthMode('login');
+        };
+                  // ===== СТАРТ ГРИ =====
+        function startGame() {
+            if (gameStarted) return;
+            gameStarted = true;
+            initCanvas();
+            setupCanvasControls();
+            listenToWorld();
+            listenToUser();
+            updateResourceDisplay();
+            requestAnimationFrame(renderLoop);
+
+            if (!userData.direction) {
+                setTimeout(() => openDirectionModal(), 400);
+            } else if (!userData.hasBase) {
+                document.getElementById('start-modal').classList.add('open');
+                awaitingStartPosition = true;
+            }
+            refreshTabContent();
+        }
+
+        function listenToWorld() {
+            if (unsubWorld) unsubWorld();
+            unsubWorld = onValue(ref(db, 'world'), (snap) => {
+                worldData = snap.exists() ? snap.val() : {};
+                scheduleRender();
+                refreshTabContent();
+            });
+        }
+
+        function listenToUser() {
+            if (unsubUser) unsubUser();
+            unsubUser = onValue(ref(db, `users/${currentUsername}`), (snap) => {
+                if (snap.exists()) {
+                    userData = snap.val();
+                    updateResourceDisplay();
+                    refreshTabContent();
+                }
+            });
+        }
+
+        function updateResourceDisplay() {
+            document.getElementById('res-food').innerText = Math.floor(userData.food || 0);
+            document.getElementById('res-wood').innerText = Math.floor(userData.wood || 0);
+            document.getElementById('res-stone').innerText = Math.floor(userData.stone || 0);
+            document.getElementById('res-gold').innerText = Math.floor(userData.gold || 0);
+        }
+
+        // ===== ВКЛАДКИ =====
+        window.switchTab = function(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector(`.tab-btn[data-tab="${tab}"]`)?.classList.add('active');
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById(`tab-${tab}`)?.classList.add('active');
+            const panel = document.getElementById('tab-panel');
+            if (tab === 'map') {
+                panel.classList.remove('open');
+            } else {
+                panel.classList.add('open');
+                refreshTabContent();
+            }
+        };
+
+        function refreshTabContent() {
+            if (!gameStarted) return;
+            if (currentTab === 'science') renderScienceTab();
+            else if (currentTab === 'build') renderBuildTab();
+            else if (currentTab === 'direction') renderDirectionTab();
+            else if (currentTab === 'settings') renderSettingsTab();
+        }
+
+        // ===== CANVAS =====
+        function initCanvas() {
+            canvas = document.getElementById('map-canvas');
+            ctx = canvas.getContext('2d');
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            resetView();
+        }
+
+        function resizeCanvas() {
+            const rect = canvas.getBoundingClientRect();
+            canvasW = rect.width;
+            canvasH = rect.height;
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = Math.floor(canvasW * dpr);
+            canvas.height = Math.floor(canvasH * dpr);
+            canvas.style.width = canvasW + 'px';
+            canvas.style.height = canvasH + 'px';
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            scheduleRender();
+        }
+
+        function hexToPixel(r, c) {
+            const x = HEX_SIZE * Math.sqrt(3) * (c + 0.5 * (r & 1)) + HEX_SIZE;
+            const y = HEX_SIZE * 1.5 * r + HEX_SIZE;
+            return { x, y };
+        }
+
+        function getHexPoints(cx, cy, radius) {
+            const pts = [];
+            for (let i = 0; i < 6; i++) {
+                const a = Math.PI / 180 * (60 * i - 30);
+                pts.push([cx + radius * Math.cos(a), cy + radius * Math.sin(a)]);
+            }
+            return pts;
+        }
+
+        function resetView() {
+            scale = 0.8;
+            const mapW = HEX_SIZE * Math.sqrt(3) * (GRID_SIZE + 0.5) + HEX_SIZE * 2;
+            const mapH = HEX_SIZE * 1.5 * (GRID_SIZE - 1) + HEX_SIZE * 2;
+            panX = (canvasW - mapW * scale) / 2;
+            panY = (canvasH - mapH * scale) / 2;
+            scheduleRender();
+        }
+
+        function setupCanvasControls() {
+            const pointers = new Map();
+            let pinchStartDist = 0, pinchStartScale = 1;
+
+            canvas.addEventListener('pointerdown', (e) => {
+                canvas.setPointerCapture(e.pointerId);
+                pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                if (pointers.size === 1) {
+                    isDragging = true; isClick = true;
+                    dragStartX = e.clientX - panX;
+                    dragStartY = e.clientY - panY;
+                } else if (pointers.size === 2) {
+                    isDragging = false; isClick = false;
+                    const [a, b] = [...pointers.values()];
+                    pinchStartDist = Math.hypot(a.x - b.x, a.y - b.y);
+                    pinchStartScale = scale;
+                }
+            });
+
+            canvas.addEventListener('pointermove', (e) => {
+                if (!pointers.has(e.pointerId)) return;
+                pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                if (pointers.size === 2) {
+                    if (pinchStartDist <= 0) return;
+                    const [a, b] = [...pointers.values()];
+                    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+                    const rect = canvas.getBoundingClientRect();
+                    const mx = (a.x + b.x) / 2 - rect.left;
+                    const my = (a.y + b.y) / 2 - rect.top;
+                    const ns = Math.min(2.5, Math.max(0.2, pinchStartScale * dist / pinchStartDist));
+                    panX = mx - (mx - panX) * (ns / scale);
+                    panY = my - (my - panY) * (ns / scale);
+                    scale = ns;
+                    scheduleRender();
+                    return;
+                }
+                if (!isDragging) return;
+                const dx = e.clientX - panX - dragStartX;
+                const dy = e.clientY - panY - dragStartY;
+                if (Math.abs(dx) > 6 || Math.abs(dy) > 6) isClick = false;
+                panX = e.clientX - dragStartX;
+                panY = e.clientY - dragStartY;
+                scheduleRender();
+            });
+
+            const endPointer = (e) => {
+                pointers.delete(e.pointerId);
+                if (pointers.size === 0) {
+                    if (isClick && isDragging) handleCanvasClick(e);
+                    isDragging = false;
+                } else if (pointers.size === 1) {
+                    const p = [...pointers.values()][0];
+                    dragStartX = p.x - panX;
+                    dragStartY = p.y - panY;
+                    isDragging = true;
+                    isClick = false;
+                }
+            };
+            canvas.addEventListener('pointerup', endPointer);
+            canvas.addEventListener('pointercancel', endPointer);
+
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const rect = canvas.getBoundingClientRect();
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+                const ns = Math.min(2.5, Math.max(0.2, scale * (e.deltaY < 0 ? 1.1 : 0.9)));
+                panX = mx - (mx - panX) * (ns / scale);
+                panY = my - (my - panY) * (ns / scale);
+                scale = ns;
+                scheduleRender();
+            }, { passive: false });
+        }
+
+        function handleCanvasClick(e) {
+            const rect = canvas.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+            const worldX = (mx - panX) / scale;
+            const worldY = (my - panY) / scale;
+            const hex = pixelToHex(worldX, worldY);
+            if (!hex) return;
+            onHexClick(hex.r, hex.c);
+        }
+
+        function pixelToHex(x, y) {
+            let r = Math.round((y - HEX_SIZE) / (HEX_SIZE * 1.5));
+            if (r < 0 || r >= GRID_SIZE) return null;
+            const offset = (r & 1) ? HEX_SIZE * Math.sqrt(3) * 0.5 : 0;
+            let c = Math.round((x - HEX_SIZE - offset) / (HEX_SIZE * Math.sqrt(3)));
+            if (c < 0 || c >= GRID_SIZE) return null;
+            return { r, c };
+        }
+
+        function getNeighborKeys(r, c) {
+            const isOdd = r & 1;
+            const dirs = isOdd
+                ? [[-1, 0], [-1, 1], [0, -1], [0, 1], [1, 0], [1, 1]]
+                : [[-1, -1], [-1, 0], [0, -1], [0, 1], [1, -1], [1, 0]];
+            const result = [];
+            for (const [dr, dc] of dirs) {
+                const nr = r + dr, nc = c + dc;
+                if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE) result.push(`${nr}_${nc}`);
+            }
+            return result;
+        }
+
+        function scheduleRender() {
+            if (renderPending) return;
+            renderPending = true;
+            requestAnimationFrame(() => {
+                renderPending = false;
+                render();
+            });
+        }
+
+        function render() {
+            if (!ctx) return;
+            ctx.clearRect(0, 0, canvasW, canvasH);
+            ctx.save();
+            ctx.translate(panX, panY);
+            ctx.scale(scale, scale);
+
+            const showDetails = scale > 0.45;
+
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    const key = `${r}_${c}`;
+                    const hex = worldData[key];
+                    const center = hexToPixel(r, c);
+                    const pts = getHexPoints(center.x, center.y, HEX_SIZE - 0.5);
+
+                    ctx.beginPath();
+                    ctx.moveTo(pts[0][0], pts[0][1]);
+                    for (let i = 1; i < 6; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+                    ctx.closePath();
+
+                    let fill = '#1b263b';
+                    if (hex) {
+                        if (hex.owner) fill = '#1e3a5f';
+                        else if (hex.type === 'water') fill = '#1e3a5a';
+                        else if (hex.type === 'forest') fill = '#1e3a1e';
+                        else if (hex.type === 'stone') fill = '#4a4a4a';
+                        else if (hex.type === 'grass') fill = '#2d4a2d';
+                    }
+                    ctx.fillStyle = fill;
+                    ctx.fill();
+                    ctx.strokeStyle = '#0f172a';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+
+                    // Підсвітка вибраного
+                    if (selectedHex && selectedHex.r === r && selectedHex.c === c) {
+                        ctx.strokeStyle = '#38bdf8';
+                        ctx.lineWidth = 2.5;
+                        ctx.stroke();
+                    }
+
+                    // Будівлі
+                    if (hex && hex.building && showDetails) {
+                        ctx.font = `bold ${16}px sans-serif`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        let icon = '';
+                        if (hex.building === 'townhall') icon = '🏰';
+                        else if (hex.building === 'farm') icon = '🌾';
+                        else if (hex.building === 'lumber') icon = '🪓';
+                        else if (hex.building === 'quarry') icon = '⛏️';
+                        if (icon) ctx.fillText(icon, center.x, center.y);
+                    }
+                }
+            }
+            ctx.restore();
+        }
+
+        function renderLoop() {
+            requestAnimationFrame(renderLoop);
+        }
+                  // ===== ГЕНЕРАЦІЯ КАРТИ =====
+        function generateMap() {
+            const map = {};
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    const rnd = Math.random();
+                    let type = 'grass';
+                    if (rnd < 0.08) type = 'water';
+                    else if (rnd < 0.28) type = 'forest';
+                    else if (rnd < 0.38) type = 'stone';
+                    map[`${r}_${c}`] = { type };
+                }
+            }
+            // Згладити купки
+            for (let step = 0; step < 3; step++) {
+                const next = {};
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        const key = `${r}_${c}`;
+                        const cur = map[key].type;
+                        const neighbors = getNeighborKeys(r, c).map(k => map[k]?.type).filter(Boolean);
+                        const waterCount = neighbors.filter(t => t === 'water').length;
+                        const forestCount = neighbors.filter(t => t === 'forest').length;
+                        if (waterCount >= 4) next[key] = { type: 'water' };
+                        else if (forestCount >= 4) next[key] = { type: 'forest' };
+                        else next[key] = { type: cur };
+                    }
+                }
+                Object.assign(map, next);
+            }
+            return map;
+        }
+
+        window.adminGenerateMap = async function() {
+            if (currentUsername !== ADMIN_USERNAME) { showToast('Тільки адмін може генерувати карту!'); return; }
+            if (!confirm('Згенерувати нову карту? Всі старі дані світу буде видалено.')) return;
+            try {
+                const map = generateMap();
+                await set(ref(db, 'world'), map);
+                const usersSnap = await get(ref(db, 'users'));
+                if (usersSnap.exists()) {
+                    const updates = {};
+                    Object.keys(usersSnap.val()).forEach(u => {
+                        updates[`users/${u}/hasBase`] = false;
+                        updates[`users/${u}/direction`] = null;
+                        updates[`users/${u}/food`] = 0;
+                        updates[`users/${u}/wood`] = 0;
+                        updates[`users/${u}/stone`] = 0;
+                        updates[`users/${u}/gold`] = 0;
+                        updates[`users/${u}/techs`] = null;
+                    });
+                    await update(ref(db), updates);
+                }
+                showToast('Карту згенеровано!');
+            } catch (e) { showToast('Помилка: ' + e.message); }
+        };
+
+        // ===== НАПРЯМКИ =====
+        const DIRECTIONS = {
+            hunter: {
+                name: '🏹 Мисливці-збирачі',
+                desc: 'Швидкий рух, полювання дає їжу, дешеві будівлі але менше HP. Можна грабувати запаси.'
+            },
+            farmer: {
+                name: '🌾 Землероби',
+                desc: 'Ферми дають +50% їжі, будівлі міцніші, можна будувати Амбар. Юніти повільніші.'
+            },
+            shaman: {
+                name: '🔮 Шаманізм',
+                desc: 'Унікальна будівля Вівтар дає бонуси сусіднім гексам. Можна навертати ворогів.'
+            }
+        };
+
+        function openDirectionModal() {
+            const cards = document.getElementById('direction-cards');
+            cards.innerHTML = Object.entries(DIRECTIONS).map(([id, d]) => `
+                <div class="direction-card" data-dir="${id}" onclick="selectDirectionCard('${id}')">
+                    <h4>${d.name}</h4>
+                    <p>${d.desc}</p>
+                </div>
+            `).join('');
+            selectedDirection = null;
+            document.getElementById('direction-confirm-btn').disabled = true;
+            document.getElementById('direction-modal').classList.add('open');
+        }
+
+        window.selectDirectionCard = function(id) {
+            selectedDirection = id;
+            document.querySelectorAll('.direction-card').forEach(c => c.classList.remove('selected'));
+            document.querySelector(`.direction-card[data-dir="${id}"]`)?.classList.add('selected');
+            document.getElementById('direction-confirm-btn').disabled = false;
+        };
+
+        window.confirmDirection = async function() {
+            if (!selectedDirection) return;
+            try {
+                await update(ref(db, `users/${currentUsername}`), { direction: selectedDirection });
+                document.getElementById('direction-modal').classList.remove('open');
+                showToast('Напрямок обрано!');
+                if (!userData.hasBase) {
+                    setTimeout(() => {
+                        document.getElementById('start-modal').classList.add('open');
+                        awaitingStartPosition = true;
+                    }, 300);
+                }
+            } catch (e) { showToast('Помилка: ' + e.message); }
+        };
+
+        window.closeStartModal = function() {
+            document.getElementById('start-modal').classList.remove('open');
+            awaitingStartPosition = false;
+        };
+
+        window.closeHexModal = function() {
+            document.getElementById('hex-modal').classList.remove('open');
+            selectedHex = null;
+            scheduleRender();
+        };
+
+        // ===== КЛІК ПО ГЕКСУ =====
+        function onHexClick(r, c) {
+            const key = `${r}_${c}`;
+            const hex = worldData[key] || { type: 'grass' };
+
+            if (awaitingStartPosition) {
+                tryPlaceTownHall(r, c);
+                return;
+            }
+
+            if (!userData.direction) {
+                openDirectionModal();
+                return;
+            }
+
+            if (!userData.hasBase) {
+                document.getElementById('start-modal').classList.add('open');
+                awaitingStartPosition = true;
+                return;
+            }
+
+            selectedHex = { r, c };
+            scheduleRender();
+            openHexModal(r, c, hex);
+        }
+
+        async function tryPlaceTownHall(r, c) {
+            const key = `${r}_${c}`;
+            const hex = worldData[key];
+            if (!hex) { showToast('Гекс не знайдено!'); return; }
+            if (hex.type === 'water' || hex.type === 'stone') {
+                showToast('Не можна ставити Ратушу на воду чи камінь!');
+                return;
+            }
+            if (hex.owner) {
+                showToast('Цей гекс вже зайнятий!');
+                return;
+            }
+            for (const nk of getNeighborKeys(r, c)) {
+                const nh = worldData[nk];
+                if (nh && nh.owner) {
+                    showToast('Занадто близько до іншого гравця!');
+                    return;
+                }
+            }
+
+            try {
+                const updates = {};
+                updates[`world/${key}`] = {
+                    type: hex.type,
+                    owner: currentUsername,
+                    building: 'townhall',
+                    buildingLevel: 1
+                };
+                updates[`users/${currentUsername}/hasBase`] = true;
+                await update(ref(db), updates);
+                awaitingStartPosition = false;
+                document.getElementById('start-modal').classList.remove('open');
+                showToast('Ратушу засновано!');
+            } catch (e) { showToast('Помилка: ' + e.message); }
+        }
+
+        // ===== МОДАЛКА ГЕКСА =====
+        function openHexModal(r, c, hex) {
+            const key = `${r}_${c}`;
+            const title = document.getElementById('hex-modal-title');
+            const body = document.getElementById('hex-modal-body');
+            const buttons = document.getElementById('hex-modal-buttons');
+
+            let typeName = 'Пусто';
+            if (hex.type === 'grass') typeName = 'Трава';
+            else if (hex.type === 'forest') typeName = 'Ліс';
+            else if (hex.type === 'stone') typeName = 'Камінь';
+            else if (hex.type === 'water') typeName = 'Вода';
+
+            const isMine = hex.owner === currentUsername;
+            const isEnemy = hex.owner && hex.owner !== currentUsername;
+            const isNeutral = !hex.owner;
+            const isAdjacentToMine = getNeighborKeys(r, c).some(nk => worldData[nk] && worldData[nk].owner === currentUsername);
+
+            title.innerText = `Гекс ${r};${c}`;
+            let bodyHtml = `<p style="font-size:13px;margin-bottom:6px;"><b>Тип:</b> ${typeName}</p>`;
+            if (hex.owner) bodyHtml += `<p style="font-size:13px;margin-bottom:6px;"><b>Власник:</b> ${hex.owner}</p>`;
+            if (hex.building) bodyHtml += `<p style="font-size:13px;margin-bottom:6px;"><b>Будівля:</b> ${hex.building}</p>`;
+            body.innerHTML = bodyHtml;
+
+            let btnsHtml = '';
+            if (isMine) {
+                btnsHtml += `<button class="modal-btn danger" onclick="demolishBuilding(${r}, ${c})">Знести будівлю</button>`;
+            } else if (isNeutral && isAdjacentToMine) {
+                if (hex.type !== 'water' && hex.type !== 'stone') {
+                    btnsHtml += `<button class="modal-btn" onclick="buildOnHex(${r}, ${c}, 'farm')">🌾 Ферма (10 їжі)</button>`;
+                    btnsHtml += `<button class="modal-btn" onclick="buildOnHex(${r}, ${c}, 'lumber')">🪓 Лісорубка (10 дерева)</button>`;
+                    btnsHtml += `<button class="modal-btn" onclick="buildOnHex(${r}, ${c}, 'quarry')">⛏️ Каменярня (10 каменю)</button>`;
+                }
+                btnsHtml += `<button class="modal-btn secondary" onclick="claimHex(${r}, ${c})">Захопити землю</button>`;
+            } else if (isEnemy) {
+                btnsHtml += `<p style="font-size:12px;color:#f87171;">Це територія гравця ${hex.owner}</p>`;
+            } else if (isNeutral && !isAdjacentToMine) {
+                btnsHtml += `<p style="font-size:12px;color:#94a3b8;">Занадто далеко від вашої території</p>`;
+            }
+            buttons.innerHTML = btnsHtml;
+
+            document.getElementById('hex-modal').classList.add('open');
+        }
+                  // ===== БУДІВНИЦТВО =====
+        const BUILDINGS = {
+            farm: {
+                name: '🌾 Ферма',
+                cost: { food: 10 },
+                income: { food: 2 },
+                hp: 50
+            },
+            lumber: {
+                name: '🪓 Лісорубка',
+                cost: { wood: 10 },
+                income: { wood: 2 },
+                hp: 50
+            },
+            quarry: {
+                name: '⛏️ Каменярня',
+                cost: { stone: 10 },
+                income: { stone: 2 },
+                hp: 50
+            }
+        };
+
+        window.buildOnHex = async function(r, c, buildingType) {
+            const key = `${r}_${c}`;
+            const hex = worldData[key];
+            if (!hex) { showToast('Гекс не знайдено!'); return; }
+            if (hex.owner && hex.owner !== currentUsername) { showToast('Це чужа територія!'); return; }
+            if (hex.building) { showToast('Тут вже є будівля!'); return; }
+            if (hex.type === 'water' || hex.type === 'stone') { showToast('Не можна будувати тут!'); return; }
+
+            const config = BUILDINGS[buildingType];
+            if (!config) return;
+
+            // Перевірка ресурсів
+            for (const [res, amount] of Object.entries(config.cost)) {
+                if ((userData[res] || 0) < amount) {
+                    showToast(`Недостатньо ${res}! Потрібно ${amount}.`);
+                    return;
+                }
+            }
+
+            try {
+                const updates = {};
+                // Списати ресурси
+                for (const [res, amount] of Object.entries(config.cost)) {
+                    updates[`users/${currentUsername}/${res}`] = (userData[res] || 0) - amount;
+                }
+                // Поставити будівлю
+                updates[`world/${key}`] = {
+                    type: hex.type,
+                    owner: currentUsername,
+                    building: buildingType,
+                    buildingLevel: 1,
+                    buildingHp: config.hp
+                };
+                await update(ref(db), updates);
+                showToast(`${config.name} збудовано!`);
+                closeHexModal();
+            } catch (e) { showToast('Помилка: ' + e.message); }
+        };
+
+        window.demolishBuilding = async function(r, c) {
+            const key = `${r}_${c}`;
+            const hex = worldData[key];
+            if (!hex || hex.owner !== currentUsername) { showToast('Це не ваша будівля!'); return; }
+            if (!hex.building) { showToast('Тут немає будівлі!'); return; }
+            if (hex.building === 'townhall') { showToast('Ратушу не можна знести!'); return; }
+            if (!confirm('Знести будівлю? Ресурси не повертаються.')) return;
+
+            try {
+                const updates = {};
+                updates[`world/${key}`] = { type: hex.type, owner: currentUsername };
+                await update(ref(db), updates);
+                showToast('Будівлю знесено!');
+                closeHexModal();
+            } catch (e) { showToast('Помилка: ' + e.message); }
+        };
+
+        window.claimHex = async function(r, c) {
+            const key = `${r}_${c}`;
+            const hex = worldData[key];
+            if (!hex) { showToast('Гекс не знайдено!'); return; }
+            if (hex.owner) { showToast('Гекс вже зайнятий!'); return; }
+
+            const isAdjacentToMine = getNeighborKeys(r, c).some(nk => worldData[nk] && worldData[nk].owner === currentUsername);
+            if (!isAdjacentToMine) { showToast('Захоплювати можна тільки суміжні гекси!'); return; }
+
+            try {
+                const updates = {};
+                updates[`world/${key}`] = { type: hex.type, owner: currentUsername };
+                await update(ref(db), updates);
+                showToast('Землю захоплено!');
+                closeHexModal();
+            } catch (e) { showToast('Помилка: ' + e.message); }
+        };
+
+        // ===== ПАСИВНИЙ ДОХІД =====
+        let incomeInterval = null;
+
+        function startIncomeLoop() {
+            if (incomeInterval) clearInterval(incomeInterval);
+            incomeInterval = setInterval(async () => {
+                if (document.visibilityState !== 'visible') return;
+                if (!currentUsername || !userData.hasBase) return;
+
+                // Порахувати дохід від будівель
+                let incomeFood = 0, incomeWood = 0, incomeStone = 0, incomeGold = 0;
+                Object.values(worldData).forEach(hex => {
+                    if (hex.owner !== currentUsername) return;
+                    if (!hex.building) return;
+                    if (hex.building === 'townhall') incomeGold += 1;
+                    else if (hex.building === 'farm') incomeFood += 2;
+                    else if (hex.building === 'lumber') incomeWood += 2;
+                    else if (hex.building === 'quarry') incomeStone += 2;
+                });
+
+                // Бонус напрямку
+                if (userData.direction === 'farmer') incomeFood = Math.floor(incomeFood * 1.5);
+                else if (userData.direction === 'hunter') incomeFood += 1;
+                else if (userData.direction === 'shaman') incomeGold += 1;
+
+                if (incomeFood === 0 && incomeWood === 0 && incomeStone === 0 && incomeGold === 0) return;
+
+                try {
+                    const updates = {};
+                    if (incomeFood > 0) updates[`users/${currentUsername}/food`] = (userData.food || 0) + incomeFood;
+                    if (incomeWood > 0) updates[`users/${currentUsername}/wood`] = (userData.wood || 0) + incomeWood;
+                    if (incomeStone > 0) updates[`users/${currentUsername}/stone`] = (userData.stone || 0) + incomeStone;
+                    if (incomeGold > 0) updates[`users/${currentUsername}/gold`] = (userData.gold || 0) + incomeGold;
+                    await update(ref(db), updates);
+                } catch (e) { console.error('Income error:', e); }
+            }, TICK_MS);
+        }
+                  // ===== ТЕХНОЛОГІЇ =====
+        const TECHS = {
+            stone_tools: {
+                name: '🪨 Кам\'яні знаряддя',
+                desc: 'Відкриває Каменярню. Умова: побудувати 1 Ферму.',
+                condition: (data) => countBuildings('farm') >= 1,
+                conditionText: 'Побудувати 1 Ферму',
+                unlocks: ['quarry']
+            },
+            wood_work: {
+                name: '🪵 Обробка дерева',
+                desc: 'Відкриває Лісорубку. Умова: побудувати 1 Каменярню.',
+                condition: (data) => countBuildings('quarry') >= 1,
+                conditionText: 'Побудувати 1 Каменярню',
+                unlocks: ['lumber']
+            },
+            pottery: {
+                name: '🏺 Кераміка',
+                desc: 'Ферми дають +50% їжі. Умова: мати 3 Ферми.',
+                condition: (data) => countBuildings('farm') >= 3,
+                conditionText: 'Побудувати 3 Ферми',
+                unlocks: []
+            },
+            tribe_org: {
+                name: '👥 Організація племені',
+                desc: 'Дохід золота +1/тік. Умова: дослідити 2 технології.',
+                condition: (data) => countResearchedTechs() >= 2,
+                conditionText: 'Дослідити 2 технології',
+                unlocks: []
+            }
+        };
+
+        function countBuildings(type) {
+            let count = 0;
+            Object.values(worldData).forEach(hex => {
+                if (hex.owner === currentUsername && hex.building === type) count++;
+            });
+            return count;
+        }
+
+        function countResearchedTechs() {
+            return Object.keys(userData.techs || {}).length;
+        }
+
+        function renderScienceTab() {
+            const container = document.getElementById('science-list');
+            if (!container) return;
+
+            let html = '';
+            for (const [id, tech] of Object.entries(TECHS)) {
+                const researched = userData.techs && userData.techs[id];
+                const canResearch = !researched && tech.condition(userData);
+                html += `<div class="tech-card ${researched ? 'researched' : ''}">
+                    <h4>${tech.name}</h4>
+                    <p>${tech.desc}</p>
+                    <p style="color:${canResearch ? '#10b981' : '#94a3b8'};">Умова: ${tech.conditionText} ${canResearch ? '✅' : '❌'}</p>
+                    ${researched
+                        ? '<p style="color:#10b981;font-weight:700;">✅ Досліджено</p>'
+                        : `<button class="tech-btn" ${canResearch ? '' : 'disabled'} onclick="researchTech('${id}')">Дослідити</button>`}
+                </div>`;
+            }
+            container.innerHTML = html;
+        }
+
+        window.researchTech = async function(techId) {
+            const tech = TECHS[techId];
+            if (!tech) return;
+            if (userData.techs && userData.techs[techId]) { showToast('Вже досліджено!'); return; }
+            if (!tech.condition(userData)) { showToast('Умова не виконана!'); return; }
+
+            try {
+                const updates = {};
+                updates[`users/${currentUsername}/techs/${techId}`] = true;
+                await update(ref(db), updates);
+                showToast(`Досліджено: ${tech.name}!`);
+                renderScienceTab();
+            } catch (e) { showToast('Помилка: ' + e.message); }
+        };
+
+        // ===== ВКЛАДКА БУДІВЛІ =====
+        function renderBuildTab() {
+            const container = document.getElementById('build-list');
+            if (!container) return;
+
+            let html = '<p style="font-size:12px;color:#94a3b8;margin-bottom:12px;">Оберіть вільний гекс на карті, щоб побудувати.</p>';
+            for (const [id, b] of Object.entries(BUILDINGS)) {
+                const costStr = Object.entries(b.cost).map(([k, v]) => `${v} ${k}`).join(', ');
+                const canAfford = Object.entries(b.cost).every(([k, v]) => (userData[k] || 0) >= v);
+                html += `<div class="build-card">
+                    <h4>${b.name}</h4>
+                    <p>Вартість: ${costStr} | Дохід: +${b.income.food || b.income.wood || b.income.stone || 0}/тік</p>
+                    <button class="build-btn" ${canAfford ? '' : 'disabled'} onclick="startBuildMode('${id}')">Обрати гекс</button>
+                </div>`;
+            }
+            container.innerHTML = html;
+        }
+
+        let pendingBuildType = null;
+        window.startBuildMode = function(type) {
+            pendingBuildType = type;
+            showToast(`Оберіть вільний гекс для ${BUILDINGS[type].name}`);
+            switchTab('map');
+        };
+
+        // ===== ВКЛАДКА НАПРЯМОК =====
+        function renderDirectionTab() {
+            const container = document.getElementById('direction-info');
+            if (!container) return;
+            if (!userData.direction) {
+                container.innerHTML = '<p style="font-size:12px;color:#94a3b8;">Напрямок ще не обрано.</p><button class="modal-btn" onclick="openDirectionModal()">Обрати напрямок</button>';
+                return;
+            }
+            const d = DIRECTIONS[userData.direction];
+            container.innerHTML = `<div class="tech-card">
+                <h4>${d.name}</h4>
+                <p>${d.desc}</p>
+                <p style="color:#10b981;font-weight:700;">✅ Активний</p>
+            </div>`;
+        }
+
+        // ===== ВКЛАДКА НАЛАШТУВАННЯ =====
+        function renderSettingsTab() {
+            const container = document.getElementById('settings-content');
+            if (!container) return;
+            let html = '';
+            if (currentUsername === ADMIN_USERNAME) {
+                html += `<button class="settings-btn danger" onclick="adminGenerateMap()">🗺️ Згенерувати нову карту (Вайп)</button>`;
+            }
+            html += `<button class="settings-btn" onclick="logout()" style="background:#ef4444;color:#fff;">Вийти</button>`;
+            container.innerHTML = html;
+        }
+
+        // ===== ОНОВЛЕННЯ onHexClick для режиму будівництва =====
+        // Перевизначаємо onHexClick, щоб врахувати pendingBuildType
+        const _origOnHexClick = onHexClick;
+        onHexClick = function(r, c) {
+            if (pendingBuildType) {
+                const type = pendingBuildType;
+                pendingBuildType = null;
+                buildOnHex(r, c, type);
+                return;
+            }
+            _origOnHexClick(r, c);
+        };
+                  // ===== ЗАПУСК =====
+        // Викликаємо startIncomeLoop після старту гри
+        const _origStartGame = startGame;
+        startGame = function() {
+            _origStartGame();
+            startIncomeLoop();
+        };
+
+        // ===== КІНЕЦЬ =====
+    </script>
+</body>
+</html>
