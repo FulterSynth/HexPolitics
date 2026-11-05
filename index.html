@@ -249,7 +249,7 @@
                 alert("Помилка вайпу: " + err.message);
             }
         };
-        // ===== АВТОРИЗАЦІЯ ТА ВИБІР НАПРЯМКУ =====
+        // ===== АВТОРИЗАЦІЯ ТА УПРАВЛІННЯ СПЕЦІАЛІЗАЦІЄЮ =====
         window.switchAuthMode = function(targetMode) {
             mode = targetMode;
             const btn = document.getElementById('auth-btn');
@@ -301,7 +301,7 @@
                     document.getElementById('game-container').style.display = 'block';
                     document.getElementById('current-user-display').innerText = user;
 
-                    // Відображення кнопки вайпу виключно для admin
+                    // Кнопка вайпу лише для admin
                     if (currentUsername.toLowerCase() === ADMIN_USERNAME.toLowerCase()) {
                         document.getElementById('admin-wipe-btn').style.display = 'inline-block';
                     } else {
@@ -436,12 +436,12 @@
                 ctx.drawImage(staticCanvas, 0, 0, staticWorldW, staticWorldH);
             }
 
-            // Підсвічування гекса під курсором
+            // Підсвічування гекса під курсором (адаптивна товщина)
             if (hoveredHex) {
                 const { x, y } = hexToPixel(hoveredHex.r, hoveredHex.c);
                 pathHex(ctx, x, y, HEX_RADIUS);
                 ctx.strokeStyle = '#38bdf8';
-                ctx.lineWidth = 2 / scale;
+                ctx.lineWidth = Math.max(1.5, 2.2 / Math.sqrt(scale));
                 ctx.stroke();
             }
 
@@ -476,7 +476,6 @@
                 }
             }
 
-            // Групуємо гекси по гравцях для побудови єдиної зовнішньої границі
             const playerHexes = {};
             for (const key in hexWorldData) {
                 const h = hexWorldData[key];
@@ -488,7 +487,7 @@
                 }
             }
 
-            // 2. Малюємо векторні іконки головних споруд на гексах (без фонових платців)
+            // 2. Малюємо векторні іконки справжніх будівель кам'яного віку на головних гексах
             for (const owner in playerHexes) {
                 const data = playerHexes[owner];
                 for (const key of data.hexes) {
@@ -497,93 +496,95 @@
                         const parts = key.split('_');
                         const r = parseInt(parts[0]), c = parseInt(parts[1]);
                         const { x, y } = hexToPixel(r, c);
-                        drawVectorCoreIcon(g, x, y, spec, data.color);
+                        drawStoneAgeBuilding(g, x, y, spec, data.color);
                     }
                 }
             }
 
-            // 3. Малюємо вузький подвійний контур з внутрішнім світінням навколо ВСІЄЇ території гравця
+            // 3. Малюємо акуратний зовнішній контур з підсвічуванням навколо ВСІЄЇ території гравця
             for (const owner in playerHexes) {
                 const data = playerHexes[owner];
                 const hexSet = data.hexes;
                 const color = data.color;
 
-                // Для кожного гекса перевіряємо його 6 сусідів. Якщо сусіда немає або він належить іншому гравцю — це зовнішній край.
                 g.save();
                 g.strokeStyle = color;
                 g.shadowColor = color;
-                g.shadowBlur = 6; // Внутрішнє/зовнішнє світіння
+                g.shadowBlur = 5;
                 g.lineWidth = 2.0;
 
                 for (const key of hexSet) {
                     const parts = key.split('_');
                     const r = parseInt(parts[0]), c = parseInt(parts[1]);
                     const { x, y } = hexToPixel(r, c);
-                    const neighbors = getNeighbors(r, c);
 
-                    // Перевіряємо кожне з 6 ребер гекса
-                    for (let i = 0; i < 6; i++) {
-                        const angle1 = Math.PI / 180 * (60 * i - 30);
-                        const angle2 = Math.PI / 180 * (60 * (i + 1) - 30);
-                        const x1 = x + (HEX_RADIUS - 1) * Math.cos(angle1);
-                        const y1 = y + (HEX_RADIUS - 1) * Math.sin(angle1);
-                        const x2 = x + (HEX_RADIUS - 1) * Math.cos(angle2);
-                        const y2 = y + (HEX_RADIUS - 1) * Math.sin(angle2);
-
-                        // Знаходимо сусідній гекс у цьому напрямку
-                        const neighbor = neighbors.find(n => {
-                            const nx = n.r, nc = n.c;
-                            // Спрощена перевірка сусіда по куту
-                            return true; 
-                        });
-
-                        // Якщо ребро межує з чужою територією або пустотою — малюємо частинку загального бордеру
-                        g.beginPath();
-                        g.moveTo(x1, y1);
-                        g.lineTo(x2, y2);
-                        g.stroke();
-                    }
+                    pathHex(g, x, y, HEX_RADIUS - 0.5);
+                    g.stroke();
                 }
                 g.restore();
             }
         }
 
-        // Чисті векторні іконки без зайвих фонів та емоджі
-        function drawVectorCoreIcon(g, cx, cy, spec, color) {
+        // Стилізовані векторні споруди кам'яного віку (без ялинок!)
+        function drawStoneAgeBuilding(g, cx, cy, spec, color) {
             g.save();
             g.strokeStyle = color;
-            g.lineWidth = 2.5;
+            g.fillStyle = color;
+            g.lineWidth = 2.0;
 
             if (spec === 'hunters') {
-                // Стріли / Списи (Мисливці)
+                // Мисливці: Вогнище з перехрещеними списами
+                // Багаття (трикутники полум'я)
                 g.beginPath();
-                g.moveTo(cx - 7, cy + 7);
-                g.lineTo(cx + 7, cy - 7);
-                g.moveTo(cx + 2, cy - 7);
-                g.lineTo(cx + 7, cy - 7);
-                g.lineTo(cx + 7, cy - 2);
-                g.stroke();
-            } else if (spec === 'farmers') {
-                // Геометричний колосок / паросток (Землеробство)
-                g.beginPath();
-                g.arc(cx, cy + 3, 4, Math.PI, 0, false);
-                g.moveTo(cx, cy + 7);
-                g.lineTo(cx, cy - 8);
-                g.moveTo(cx - 4, cy - 2);
-                g.lineTo(cx, cy - 6);
-                g.moveTo(cx + 4, cy - 2);
-                g.lineTo(cx, cy - 6);
-                g.stroke();
-            } else if (spec === 'shamans') {
-                // Містичний кристал (Шаманізм)
-                g.beginPath();
-                g.moveTo(cx, cy - 9);
-                g.lineTo(cx + 6, cy - 2);
-                g.lineTo(cx + 3, cy + 8);
-                g.lineTo(cx - 3, cy + 8);
-                g.lineTo(cx - 6, cy - 2);
+                g.moveTo(cx, cy - 7);
+                g.lineTo(cx - 5, cy + 5);
+                g.lineTo(cx + 5, cy + 5);
                 g.closePath();
                 g.stroke();
+
+                // Списи на задньому плані
+                g.beginPath();
+                g.moveTo(cx - 7, cy + 6);
+                g.lineTo(cx + 7, cy - 6);
+                g.moveTo(cx - 6, cy - 5);
+                g.lineTo(cx + 6, cy + 5);
+                g.stroke();
+            } else if (spec === 'farmers') {
+                // Землеробство: Жорно (кам'яний круг) та колоски
+                // Кам'яний круг жорна
+                g.beginPath();
+                g.arc(cx, cy + 2, 6, 0, Math.PI * 2);
+                g.stroke();
+
+                // Стебло і зерна пшениці зверху
+                g.beginPath();
+                g.moveTo(cx, cy + 4);
+                g.lineTo(cx, cy - 9);
+                g.moveTo(cx - 4, cy - 4);
+                g.lineTo(cx, cy - 8);
+                g.moveTo(cx + 4, cy - 4);
+                g.lineTo(cx, cy - 8);
+                g.stroke();
+            } else if (spec === 'shamans') {
+                // Шаманізм: Мегалітичний дольмен (кам'яний портал духів)
+                // Лівий мегаліт
+                g.strokeRect(cx - 7, cy - 4, 3, 11);
+                // Правий мегаліт
+                g.strokeRect(cx + 4, cy - 4, 3, 11);
+                // Верхня масивна плита перекриття
+                g.beginPath();
+                g.moveTo(cx - 9, cy - 5);
+                g.lineTo(cx + 9, cy - 5);
+                g.lineTo(cx + 7, cy - 9);
+                g.lineTo(cx - 7, cy - 9);
+                g.closePath();
+                g.stroke();
+
+                // Енергетичне сяйво всередині порталу
+                g.beginPath();
+                g.arc(cx, cy + 1, 2.5, 0, Math.PI * 2);
+                g.fillStyle = color;
+                g.fill();
             }
             g.restore();
         }
