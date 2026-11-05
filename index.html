@@ -38,9 +38,42 @@
         .tab-btn.active { color: #38bdf8; }
         .tab-btn:hover { color: #94a3b8; }
 
+        #tab-panel { position: absolute; bottom: 56px; left: 0; right: 0; max-height: 60vh; background: #151b2b; border-top: 1px solid #1e293b; border-radius: 12px 12px 0 0; transform: translateY(100%); transition: transform 0.25s ease; z-index: 99; overflow-y: auto; padding: 16px; }
+        #tab-panel.open { transform: translateY(0); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .tab-content h3 { color: #38bdf8; font-size: 16px; margin-bottom: 12px; }
+
         #toast-container { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%); z-index: 900; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
         .toast { background: #1e293b; color: #e2e8f0; padding: 10px 16px; border-radius: 8px; font-size: 13px; border: 1px solid #334155; animation: toastIn 0.3s ease; max-width: 90vw; text-align: center; }
         @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 500; justify-content: center; align-items: center; padding: 16px; }
+        .modal.open { display: flex; }
+        .modal-content { background: #151b2b; border: 1px solid #1e293b; border-radius: 12px; padding: 20px; width: 100%; max-width: 400px; max-height: 85vh; overflow-y: auto; }
+        .modal-content h3 { color: #38bdf8; margin-bottom: 8px; font-size: 18px; }
+        .modal-sub { font-size: 12px; color: #94a3b8; margin-bottom: 16px; line-height: 1.4; }
+        .modal-btn { width: 100%; padding: 12px; border-radius: 8px; border: none; background: #38bdf8; color: #0a0e17; font-weight: 700; cursor: pointer; margin-top: 8px; font-size: 14px; }
+        .modal-btn:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+        .modal-btn.secondary { background: #1e293b; color: #e2e8f0; }
+        .modal-btn.danger { background: #ef4444; color: #fff; }
+
+        .direction-card { background: #0a0e17; border: 2px solid #1e293b; border-radius: 10px; padding: 14px; margin-bottom: 10px; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+        .direction-card:hover { border-color: #38bdf8; }
+        .direction-card.selected { border-color: #38bdf8; background: rgba(56,189,248,0.08); }
+        .direction-card h4 { color: #38bdf8; margin-bottom: 4px; font-size: 15px; }
+        .direction-card p { font-size: 12px; color: #94a3b8; line-height: 1.4; }
+
+        .tech-card, .build-card { background: #0a0e17; border: 1px solid #1e293b; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+        .tech-card h4, .build-card h4 { color: #38bdf8; font-size: 14px; margin-bottom: 4px; }
+        .tech-card p, .build-card p { font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 6px; }
+        .tech-card.researched { border-color: #10b981; opacity: 0.7; }
+        .tech-btn, .build-btn { padding: 8px 12px; border-radius: 6px; border: none; background: #10b981; color: #fff; font-weight: 700; cursor: pointer; font-size: 12px; margin-top: 4px; }
+        .tech-btn:disabled, .build-btn:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+
+        .settings-btn { width: 100%; padding: 12px; border-radius: 8px; border: none; background: #1e293b; color: #e2e8f0; font-weight: 700; cursor: pointer; margin-top: 8px; font-size: 14px; }
+        .settings-btn:hover { background: #334155; }
+        .settings-btn.danger { background: #ef4444; color: #fff; }
 
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #0a0e17; }
@@ -96,7 +129,7 @@
         <div id="toast-container"></div>
     </div>
 
-    <!-- Модальне вікно вибору напрямку -->
+    <!-- Модалка напрямку -->
     <div id="direction-modal" class="modal">
         <div class="modal-content">
             <h3>🧭 Обери свій шлях</h3>
@@ -106,7 +139,7 @@
         </div>
     </div>
 
-    <!-- Модальне вікно вибору стартової позиції -->
+    <!-- Модалка старту -->
     <div id="start-modal" class="modal">
         <div class="modal-content">
             <h3>📍 Обери місце для Ратуші</h3>
@@ -115,7 +148,7 @@
         </div>
     </div>
 
-    <!-- Модальне вікно інформації про гекс -->
+    <!-- Модалка гекса -->
     <div id="hex-modal" class="modal">
         <div class="modal-content">
             <h3 id="hex-modal-title">Гекс</h3>
@@ -145,7 +178,6 @@
         const HEX_SIZE = 28;
         const TICK_MS = 10000;
 
-        // ===== СТАН =====
         let mode = "login";
         let currentUsername = "";
         let userData = {};
@@ -154,7 +186,6 @@
         let unsubUser = null;
         let gameStarted = false;
 
-        // Canvas
         let canvas, ctx, canvasW, canvasH;
         let scale = 0.8;
         let panX = 0, panY = 0;
@@ -163,13 +194,13 @@
         let isClick = true;
         let renderPending = false;
 
-        // Вибір
         let selectedHex = null;
         let selectedDirection = null;
         let awaitingStartPosition = false;
         let currentTab = "map";
+        let pendingBuildType = null;
+        let incomeInterval = null;
 
-        // ===== TOAST =====
         window.showToast = function(msg, duration = 2500) {
             const container = document.getElementById('toast-container');
             const el = document.createElement('div');
@@ -183,14 +214,12 @@
             }, duration);
         };
 
-        // ===== АВТОРИЗАЦІЯ =====
         window.switchAuthMode = function(target) {
             mode = target;
             const btn = document.getElementById('auth-btn');
             const toggleMode = document.getElementById('auth-toggle-mode');
             const togglePass = document.getElementById('auth-toggle-pass');
             const newPassContainer = document.getElementById('new-password-container');
-
             if (mode === 'login') {
                 btn.innerText = 'Увійти';
                 toggleMode.innerText = 'Немає акаунта? Зареєструватись';
@@ -217,18 +246,13 @@
             const pass = document.getElementById('password').value.trim();
             if (!user || !pass) { showToast('Заповніть усі поля!'); return; }
             const dbRef = ref(db);
-
             try {
                 if (mode === 'register') {
                     const snap = await get(child(dbRef, `users/${user}`));
                     if (snap.exists()) { showToast('Такий користувач вже існує!'); return; }
                     await set(ref(db, 'users/' + user), {
-                        password: pass,
-                        food: 0, wood: 0, stone: 0, gold: 0,
-                        direction: null,
-                        hasBase: false,
-                        techs: {},
-                        lastOnline: Date.now()
+                        password: pass, food: 0, wood: 0, stone: 0, gold: 0,
+                        direction: null, hasBase: false, techs: {}, lastOnline: Date.now()
                     });
                     showToast('Акаунт створено!');
                     switchAuthMode('login');
@@ -237,13 +261,10 @@
                     if (!snap.exists() || snap.val().password !== pass) { showToast('Невірний логін або пароль!'); return; }
                     currentUsername = user;
                     userData = snap.val();
-
                     const worldSnap = await get(ref(db, 'world'));
                     worldData = worldSnap.exists() ? worldSnap.val() : {};
-
                     document.getElementById('auth-screen').style.display = 'none';
                     document.getElementById('game-container').style.display = 'block';
-
                     startGame();
                 } else if (mode === 'change-pass') {
                     const newPass = document.getElementById('new-password').value.trim();
@@ -258,11 +279,10 @@
         };
 
         window.logout = async function() {
-            if (currentUsername) {
-                try { await update(ref(db, `users/${currentUsername}`), { lastOnline: Date.now() }); } catch (e) {}
-            }
+            if (currentUsername) { try { await update(ref(db, `users/${currentUsername}`), { lastOnline: Date.now() }); } catch (e) {} }
             if (unsubWorld) { unsubWorld(); unsubWorld = null; }
             if (unsubUser) { unsubUser(); unsubUser = null; }
+            if (incomeInterval) { clearInterval(incomeInterval); incomeInterval = null; }
             currentUsername = ""; userData = {}; worldData = {};
             gameStarted = false;
             document.getElementById('game-container').style.display = 'none';
@@ -271,7 +291,7 @@
             document.getElementById('password').value = '';
             switchAuthMode('login');
         };
-                  // ===== СТАРТ ГРИ =====
+                    // ===== СТАРТ ГРИ =====
         function startGame() {
             if (gameStarted) return;
             gameStarted = true;
@@ -281,6 +301,7 @@
             listenToUser();
             updateResourceDisplay();
             requestAnimationFrame(renderLoop);
+            startIncomeLoop();
 
             if (!userData.direction) {
                 setTimeout(() => openDirectionModal(), 400);
@@ -510,16 +531,13 @@
             ctx.save();
             ctx.translate(panX, panY);
             ctx.scale(scale, scale);
-
             const showDetails = scale > 0.45;
-
             for (let r = 0; r < GRID_SIZE; r++) {
                 for (let c = 0; c < GRID_SIZE; c++) {
                     const key = `${r}_${c}`;
                     const hex = worldData[key];
                     const center = hexToPixel(r, c);
                     const pts = getHexPoints(center.x, center.y, HEX_SIZE - 0.5);
-
                     ctx.beginPath();
                     ctx.moveTo(pts[0][0], pts[0][1]);
                     for (let i = 1; i < 6; i++) ctx.lineTo(pts[i][0], pts[i][1]);
@@ -539,14 +557,12 @@
                     ctx.lineWidth = 1;
                     ctx.stroke();
 
-                    // Підсвітка вибраного
                     if (selectedHex && selectedHex.r === r && selectedHex.c === c) {
                         ctx.strokeStyle = '#38bdf8';
                         ctx.lineWidth = 2.5;
                         ctx.stroke();
                     }
 
-                    // Будівлі
                     if (hex && hex.building && showDetails) {
                         ctx.font = `bold ${16}px sans-serif`;
                         ctx.textAlign = 'center';
@@ -566,7 +582,7 @@
         function renderLoop() {
             requestAnimationFrame(renderLoop);
         }
-                  // ===== ГЕНЕРАЦІЯ КАРТИ =====
+                    // ===== ГЕНЕРАЦІЯ КАРТИ =====
         function generateMap() {
             const map = {};
             for (let r = 0; r < GRID_SIZE; r++) {
@@ -579,7 +595,6 @@
                     map[`${r}_${c}`] = { type };
                 }
             }
-            // Згладити купки
             for (let step = 0; step < 3; step++) {
                 const next = {};
                 for (let r = 0; r < GRID_SIZE; r++) {
@@ -687,6 +702,12 @@
 
         // ===== КЛІК ПО ГЕКСУ =====
         function onHexClick(r, c) {
+            if (pendingBuildType) {
+                const type = pendingBuildType;
+                pendingBuildType = null;
+                buildOnHex(r, c, type);
+                return;
+            }
             const key = `${r}_${c}`;
             const hex = worldData[key] || { type: 'grass' };
 
@@ -694,18 +715,15 @@
                 tryPlaceTownHall(r, c);
                 return;
             }
-
             if (!userData.direction) {
                 openDirectionModal();
                 return;
             }
-
             if (!userData.hasBase) {
                 document.getElementById('start-modal').classList.add('open');
                 awaitingStartPosition = true;
                 return;
             }
-
             selectedHex = { r, c };
             scheduleRender();
             openHexModal(r, c, hex);
@@ -715,29 +733,17 @@
             const key = `${r}_${c}`;
             const hex = worldData[key];
             if (!hex) { showToast('Гекс не знайдено!'); return; }
-            if (hex.type === 'water' || hex.type === 'stone') {
-                showToast('Не можна ставити Ратушу на воду чи камінь!');
-                return;
-            }
-            if (hex.owner) {
-                showToast('Цей гекс вже зайнятий!');
-                return;
-            }
+            if (hex.type === 'water' || hex.type === 'stone') { showToast('Не можна ставити Ратушу на воду чи камінь!'); return; }
+            if (hex.owner) { showToast('Цей гекс вже зайнятий!'); return; }
             for (const nk of getNeighborKeys(r, c)) {
                 const nh = worldData[nk];
-                if (nh && nh.owner) {
-                    showToast('Занадто близько до іншого гравця!');
-                    return;
-                }
+                if (nh && nh.owner) { showToast('Занадто близько до іншого гравця!'); return; }
             }
-
             try {
                 const updates = {};
                 updates[`world/${key}`] = {
-                    type: hex.type,
-                    owner: currentUsername,
-                    building: 'townhall',
-                    buildingLevel: 1
+                    type: hex.type, owner: currentUsername,
+                    building: 'townhall', buildingLevel: 1
                 };
                 updates[`users/${currentUsername}/hasBase`] = true;
                 await update(ref(db), updates);
@@ -749,7 +755,6 @@
 
         // ===== МОДАЛКА ГЕКСА =====
         function openHexModal(r, c, hex) {
-            const key = `${r}_${c}`;
             const title = document.getElementById('hex-modal-title');
             const body = document.getElementById('hex-modal-body');
             const buttons = document.getElementById('hex-modal-buttons');
@@ -773,7 +778,14 @@
 
             let btnsHtml = '';
             if (isMine) {
-                btnsHtml += `<button class="modal-btn danger" onclick="demolishBuilding(${r}, ${c})">Знести будівлю</button>`;
+                if (hex.building && hex.building !== 'townhall') {
+                    btnsHtml += `<button class="modal-btn danger" onclick="demolishBuilding(${r}, ${c})">Знести будівлю</button>`;
+                }
+                if (!hex.building && hex.type !== 'water' && hex.type !== 'stone') {
+                    btnsHtml += `<button class="modal-btn" onclick="buildOnHex(${r}, ${c}, 'farm')">🌾 Ферма (10 їжі)</button>`;
+                    btnsHtml += `<button class="modal-btn" onclick="buildOnHex(${r}, ${c}, 'lumber')">🪓 Лісорубка (10 дерева)</button>`;
+                    btnsHtml += `<button class="modal-btn" onclick="buildOnHex(${r}, ${c}, 'quarry')">⛏️ Каменярня (10 каменю)</button>`;
+                }
             } else if (isNeutral && isAdjacentToMine) {
                 if (hex.type !== 'water' && hex.type !== 'stone') {
                     btnsHtml += `<button class="modal-btn" onclick="buildOnHex(${r}, ${c}, 'farm')">🌾 Ферма (10 їжі)</button>`;
@@ -787,10 +799,9 @@
                 btnsHtml += `<p style="font-size:12px;color:#94a3b8;">Занадто далеко від вашої території</p>`;
             }
             buttons.innerHTML = btnsHtml;
-
             document.getElementById('hex-modal').classList.add('open');
         }
-                  // ===== БУДІВНИЦТВО =====
+                    // ===== БУДІВНИЦТВО =====
         const BUILDINGS = {
             farm: {
                 name: '🌾 Ферма',
@@ -823,7 +834,6 @@
             const config = BUILDINGS[buildingType];
             if (!config) return;
 
-            // Перевірка ресурсів
             for (const [res, amount] of Object.entries(config.cost)) {
                 if ((userData[res] || 0) < amount) {
                     showToast(`Недостатньо ${res}! Потрібно ${amount}.`);
@@ -833,11 +843,9 @@
 
             try {
                 const updates = {};
-                // Списати ресурси
                 for (const [res, amount] of Object.entries(config.cost)) {
                     updates[`users/${currentUsername}/${res}`] = (userData[res] || 0) - amount;
                 }
-                // Поставити будівлю
                 updates[`world/${key}`] = {
                     type: hex.type,
                     owner: currentUsername,
@@ -873,7 +881,6 @@
             const hex = worldData[key];
             if (!hex) { showToast('Гекс не знайдено!'); return; }
             if (hex.owner) { showToast('Гекс вже зайнятий!'); return; }
-
             const isAdjacentToMine = getNeighborKeys(r, c).some(nk => worldData[nk] && worldData[nk].owner === currentUsername);
             if (!isAdjacentToMine) { showToast('Захоплювати можна тільки суміжні гекси!'); return; }
 
@@ -887,15 +894,12 @@
         };
 
         // ===== ПАСИВНИЙ ДОХІД =====
-        let incomeInterval = null;
-
         function startIncomeLoop() {
             if (incomeInterval) clearInterval(incomeInterval);
             incomeInterval = setInterval(async () => {
                 if (document.visibilityState !== 'visible') return;
                 if (!currentUsername || !userData.hasBase) return;
 
-                // Порахувати дохід від будівель
                 let incomeFood = 0, incomeWood = 0, incomeStone = 0, incomeGold = 0;
                 Object.values(worldData).forEach(hex => {
                     if (hex.owner !== currentUsername) return;
@@ -906,7 +910,6 @@
                     else if (hex.building === 'quarry') incomeStone += 2;
                 });
 
-                // Бонус напрямку
                 if (userData.direction === 'farmer') incomeFood = Math.floor(incomeFood * 1.5);
                 else if (userData.direction === 'hunter') incomeFood += 1;
                 else if (userData.direction === 'shaman') incomeGold += 1;
@@ -923,35 +926,31 @@
                 } catch (e) { console.error('Income error:', e); }
             }, TICK_MS);
         }
-                  // ===== ТЕХНОЛОГІЇ =====
+                    // ===== ТЕХНОЛОГІЇ =====
         const TECHS = {
             stone_tools: {
                 name: '🪨 Кам\'яні знаряддя',
                 desc: 'Відкриває Каменярню. Умова: побудувати 1 Ферму.',
-                condition: (data) => countBuildings('farm') >= 1,
+                condition: () => countBuildings('farm') >= 1,
                 conditionText: 'Побудувати 1 Ферму',
-                unlocks: ['quarry']
             },
             wood_work: {
                 name: '🪵 Обробка дерева',
                 desc: 'Відкриває Лісорубку. Умова: побудувати 1 Каменярню.',
-                condition: (data) => countBuildings('quarry') >= 1,
+                condition: () => countBuildings('quarry') >= 1,
                 conditionText: 'Побудувати 1 Каменярню',
-                unlocks: ['lumber']
             },
             pottery: {
                 name: '🏺 Кераміка',
                 desc: 'Ферми дають +50% їжі. Умова: мати 3 Ферми.',
-                condition: (data) => countBuildings('farm') >= 3,
+                condition: () => countBuildings('farm') >= 3,
                 conditionText: 'Побудувати 3 Ферми',
-                unlocks: []
             },
             tribe_org: {
                 name: '👥 Організація племені',
                 desc: 'Дохід золота +1/тік. Умова: дослідити 2 технології.',
-                condition: (data) => countResearchedTechs() >= 2,
+                condition: () => countResearchedTechs() >= 2,
                 conditionText: 'Дослідити 2 технології',
-                unlocks: []
             }
         };
 
@@ -970,11 +969,10 @@
         function renderScienceTab() {
             const container = document.getElementById('science-list');
             if (!container) return;
-
             let html = '';
             for (const [id, tech] of Object.entries(TECHS)) {
                 const researched = userData.techs && userData.techs[id];
-                const canResearch = !researched && tech.condition(userData);
+                const canResearch = !researched && tech.condition();
                 html += `<div class="tech-card ${researched ? 'researched' : ''}">
                     <h4>${tech.name}</h4>
                     <p>${tech.desc}</p>
@@ -991,8 +989,7 @@
             const tech = TECHS[techId];
             if (!tech) return;
             if (userData.techs && userData.techs[techId]) { showToast('Вже досліджено!'); return; }
-            if (!tech.condition(userData)) { showToast('Умова не виконана!'); return; }
-
+            if (!tech.condition()) { showToast('Умова не виконана!'); return; }
             try {
                 const updates = {};
                 updates[`users/${currentUsername}/techs/${techId}`] = true;
@@ -1006,7 +1003,6 @@
         function renderBuildTab() {
             const container = document.getElementById('build-list');
             if (!container) return;
-
             let html = '<p style="font-size:12px;color:#94a3b8;margin-bottom:12px;">Оберіть вільний гекс на карті, щоб побудувати.</p>';
             for (const [id, b] of Object.entries(BUILDINGS)) {
                 const costStr = Object.entries(b.cost).map(([k, v]) => `${v} ${k}`).join(', ');
@@ -1020,7 +1016,6 @@
             container.innerHTML = html;
         }
 
-        let pendingBuildType = null;
         window.startBuildMode = function(type) {
             pendingBuildType = type;
             showToast(`Оберіть вільний гекс для ${BUILDINGS[type].name}`);
@@ -1032,7 +1027,7 @@
             const container = document.getElementById('direction-info');
             if (!container) return;
             if (!userData.direction) {
-                container.innerHTML = '<p style="font-size:12px;color:#94a3b8;">Напрямок ще не обрано.</p><button class="modal-btn" onclick="openDirectionModal()">Обрати напрямок</button>';
+                container.innerHTML = '<p style="font-size:12px;color:#94a3b8;margin-bottom:12px;">Напрямок ще не обрано.</p><button class="modal-btn" onclick="openDirectionModal()">Обрати напрямок</button>';
                 return;
             }
             const d = DIRECTIONS[userData.direction];
@@ -1054,28 +1049,6 @@
             html += `<button class="settings-btn" onclick="logout()" style="background:#ef4444;color:#fff;">Вийти</button>`;
             container.innerHTML = html;
         }
-
-        // ===== ОНОВЛЕННЯ onHexClick для режиму будівництва =====
-        // Перевизначаємо onHexClick, щоб врахувати pendingBuildType
-        const _origOnHexClick = onHexClick;
-        onHexClick = function(r, c) {
-            if (pendingBuildType) {
-                const type = pendingBuildType;
-                pendingBuildType = null;
-                buildOnHex(r, c, type);
-                return;
-            }
-            _origOnHexClick(r, c);
-        };
-                  // ===== ЗАПУСК =====
-        // Викликаємо startIncomeLoop після старту гри
-        const _origStartGame = startGame;
-        startGame = function() {
-            _origStartGame();
-            startIncomeLoop();
-        };
-
-        // ===== КІНЕЦЬ =====
-    </script>
+                </script>
 </body>
 </html>
