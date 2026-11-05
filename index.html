@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>HexPolitics: Stone Age v6.2</title>
+    <title>HexPolitics: Stone Age</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         body, html { height: 100%; width: 100%; overflow: hidden; background: #0f172a; color: #fff; user-select: none; -webkit-user-select: none; }
@@ -31,16 +31,22 @@
 
         #user-bar { position: absolute; top: 10px; left: 10px; right: 10px; background: rgba(30, 41, 59, 0.95); padding: 8px 12px; border-radius: 10px; border: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; z-index: 500; box-shadow: 0 4px 15px rgba(0,0,0,0.4); backdrop-filter: blur(5px); font-size: 13px; }
         .user-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-        .gold-display { background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; padding: 3px 8px; border-radius: 6px; font-weight: bold; color: #fbbf24; display: flex; align-items: center; gap: 4px; font-size: 12px; }
+        .food-display { background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; padding: 3px 8px; border-radius: 6px; font-weight: bold; color: #fbbf24; display: flex; align-items: center; gap: 4px; font-size: 12px; }
         .user-actions { display: flex; gap: 6px; align-items: center; }
         #user-bar button { padding: 5px 10px; border-radius: 6px; border: none; background: #ef4444; color: #fff; font-weight: bold; cursor: pointer; font-size: 11px; transition: background 0.2s; }
         #user-bar button:hover { background: #dc2626; }
 
-        .modal { display: none; position: fixed; background: #1e293b; border: 2px solid #38bdf8; border-radius: 12px; padding: 20px; z-index: 1500; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 340px; max-width: calc(100vw - 30px); max-height: 80vh; overflow-y: auto; top: 50%; right: 15px; transform: translateY(-50%); }
-        .modal h3 { margin-bottom: 10px; color: #38bdf8; font-size: 18px; }
+        /* Модальні вікна вибору напрямку та управління */
+        .modal { display: none; position: fixed; background: #1e293b; border: 2px solid #38bdf8; border-radius: 12px; padding: 20px; z-index: 1500; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 360px; max-width: calc(100vw - 30px); top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        .modal h3 { margin-bottom: 12px; color: #38bdf8; font-size: 18px; }
+        .path-cards { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+        .path-card { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 10px; text-align: left; cursor: pointer; transition: border-color 0.2s; }
+        .path-card:hover { border-color: #38bdf8; }
+        .path-card h4 { color: #fbbf24; font-size: 14px; margin-bottom: 3px; }
+        .path-card p { color: #94a3b8; font-size: 11px; line-height: 1.3; }
+
         .modal-btns { display: flex; gap: 8px; justify-content: center; flex-direction: column; margin-top: 10px; }
         .modal-btns button { padding: 10px 15px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; font-size: 13px; width: 100%; }
-        .btn-confirm { background: #10b981; color: #fff; }
         .btn-cancel { background: #64748b; color: #fff; }
 
         #zoom-controls { position: absolute; bottom: 15px; right: 15px; display: flex; flex-direction: column; gap: 6px; z-index: 500; }
@@ -52,15 +58,15 @@
     <div id="update-loader">
         <div class="loader-content">
             <div class="spinner"></div>
-            <h2 id="loader-status">HexPolitics: Stone Age</h2>
-            <p id="loader-desc">Завантаження первовічного світу...</p>
+            <h2>HexPolitics</h2>
+            <p>Завантаження світу каменю...</p>
         </div>
     </div>
 
     <div id="auth-screen">
         <div class="auth-box">
-            <h2>Stone Age</h2>
-            <input type="text" id="username" placeholder="Логін племені">
+            <h2>HexPolitics</h2>
+            <input type="text" id="username" placeholder="Ім'я племені">
             <input type="password" id="password" placeholder="Пароль">
             <button id="auth-btn" onclick="handleAuth()">Увійти</button>
             <div class="auth-toggle" id="auth-toggle-mode" onclick="switchAuthMode('register')">Створити нове плем'я</div>
@@ -71,7 +77,7 @@
         <div id="user-bar">
             <div class="user-left">
                 <span>Вождь: <b id="current-user-display" style="color: #38bdf8;">---</b></span>
-                <div class="gold-display">🍖 Їжа/Ресурси: <span id="user-gold-display">0</span></div>
+                <div class="food-display">🍖 Їжа: <span id="user-food-display">50</span></div>
             </div>
             <div class="user-actions">
                 <button onclick="logout()">Вийти</button>
@@ -85,6 +91,29 @@
         <div id="zoom-controls">
             <button onclick="zoomIn()" title="Наблизити">+</button>
             <button onclick="zoomOut()" title="Віддалити">−</button>
+        </div>
+    </div>
+
+    <!-- Модалка вибору головної споруди / напрямку племені -->
+    <div id="path-modal" class="modal">
+        <h3>🗿 Оберіть шлях племені</h3>
+        <p style="font-size: 11px; color: #94a3b8; margin-bottom: 10px;">Ваша перша головна споруда визначатиме спеціалізацію:</p>
+        <div class="path-cards">
+            <div class="path-card" onclick="selectPath('hunters')">
+                <h4>🏹 Мисливці-збирачі</h4>
+                <p>Швидкі воїни, прискорений рух та подвійні трофеї з диких земель.</p>
+            </div>
+            <div class="path-card" onclick="selectPath('farmers')">
+                <h4>🌾 Перше землеробство</h4>
+                <p>Осілість, стабільний пасивний приріст їжі та захист території.</p>
+            </div>
+            <div class="path-card" onclick="selectPath('shamans')">
+                <h4>🔮 Шаманізм та духи</h4>
+                <p>Містична аура племені, зцілення та сакральний зв'язок з духами.</p>
+            </div>
+        </div>
+        <div class="modal-btns">
+            <button class="btn-cancel" onclick="closePathModal()">Скасувати</button>
         </div>
     </div>
     <script type="module">
@@ -104,39 +133,34 @@
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
 
-        // ===== КОНСТАНТИ КАМ'ЯНОГО ВІКУ =====
+        // ===== КОНСТАНТИ КАМ'ЯНОГО ВІКУ HEXPOLITICS =====
         const CURRENT_VERSION = "6.2.0";
         const GRID_ROWS = 25;
         const GRID_COLS = 25;
         const HEX_RADIUS = 26;
-        const STATIC_SSAA = 1; // Оптимізація швидкодії без зайвого масштабування
+        const STATIC_SSAA = 1;
 
         // ===== СТАН ГРИ =====
         let mode = "login";
         let currentUsername = "";
-        let userResources = 0;
+        let userResources = 50;
         let hexWorldData = {};
         let gameLoopInterval = null;
         let unsubWorld = null;
         let unsubUser = null;
         let gameLoopBusy = false;
+        let selectedHexCoords = null; // Зберігає клітинку, на яку натиснули для заснування племені
 
         let canvas = null, ctx = null, dpr = 1, viewW = 0, viewH = 0;
         let scale = 0.75, panX = 0, panY = 0;
         let staticCanvas = null, staticCtx = null, staticWorldW = 0, staticWorldH = 0, staticDirty = true;
         let playerColorCache = {};
-        let pathCache = new Map();
         let hoveredHex = null;
         let isDragging = false, dragStartX = 0, dragStartY = 0, dragMoved = false, isClick = true;
         const activePointers = new Map();
         let renderScheduled = false, rafHandle = 0;
 
         function invalidateColorCache() { playerColorCache = {}; }
-        function invalidatePathCache() { pathCache.clear(); }
-
-        function generateUnitId() {
-            return 'u_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
-        }
 
         function getPlayerColor(username) {
             if (playerColorCache[username]) return playerColorCache[username];
@@ -206,7 +230,7 @@
             l.style.opacity = '0';
             setTimeout(() => l.style.display = 'none', 500);
         }
-        // ===== АВТОРИЗАЦІЯ ТА СЕСІЯ =====
+        // ===== АВТОРИЗАЦІЯ ТА ВИБІР ШЛЯХУ ПЛЕМЕНІ =====
         window.switchAuthMode = function(targetMode) {
             mode = targetMode;
             const btn = document.getElementById('auth-btn');
@@ -218,7 +242,7 @@
                 toggleMode.setAttribute('onclick', "switchAuthMode('register')");
             } else if (mode === 'register') {
                 btn.innerText = "Заснувати плем'я";
-                toggleMode.innerText = 'Вже є плем\'я? Увійти';
+                toggleMode.innerText = "Вже є плем'я? Увійти";
                 toggleMode.setAttribute('onclick', "switchAuthMode('login')");
             }
         }
@@ -278,37 +302,59 @@
             document.getElementById('game-container').style.display = 'none';
             document.getElementById('auth-screen').style.display = 'flex';
         }
-        // ===== СЛУХАЧІ ДАНИХ ТА ІГРОВИЙ ЦИКЛ =====
-        function listenToWorldData() {
-            if (unsubWorld) unsubWorld();
-            unsubWorld = onValue(ref(db, 'world_hexes'), (snapshot) => {
-                hexWorldData = snapshot.exists() ? snapshot.val() : {};
-                staticDirty = true;
-                scheduleRender();
-            });
+
+        // Логіка кліку по гексу для вибору шляху
+        function handleHexClick(r, c) {
+            const key = `${r}_${c}`;
+            const hexInfo = hexWorldData[key];
+
+            // Якщо гекс зайнятий — нічого не робимо
+            if (hexInfo && hexInfo.owner) return;
+
+            // Перевіряємо, чи є вже у гравця головна споруда (плем'я на карті)
+            let hasCore = false;
+            for (const k in hexWorldData) {
+                if (hexWorldData[k].owner === currentUsername) { hasCore = true; break; }
+            }
+
+            if (!hasCore) {
+                // Якщо племені ще немає на карті — пропонуємо обрати шлях
+                selectedHexCoords = { r, c };
+                document.getElementById('path-modal').style.display = 'block';
+            }
         }
 
-        function listenToUserData() {
-            if (unsubUser) unsubUser();
-            unsubUser = onValue(ref(db, `users/${currentUsername}`), (snapshot) => {
-                if (!snapshot.exists()) return;
-                const data = snapshot.val();
-                userResources = Math.floor(data.resources || 0);
-                const gEl = document.getElementById('user-gold-display');
-                if (gEl) gEl.innerText = userResources;
-            });
+        window.closePathModal = function() {
+            document.getElementById('path-modal').style.display = 'none';
+            selectedHexCoords = null;
         }
 
-        function startGameLoop() {
-            if (gameLoopInterval) clearInterval(gameLoopInterval);
-            gameLoopInterval = setInterval(async () => {
-                if (!currentUsername || gameLoopBusy) return;
-                gameLoopBusy = true;
-                try {
-                    // Логіка оновлення подій первовічного світу
-                } catch (err) { console.error('Помилка ігрового циклу:', err); }
-                finally { gameLoopBusy = false; }
-            }, 3000);
+        // Вибір конкретного напрямку племені
+        window.selectPath = async function(pathType) {
+            if (!selectedHexCoords) return;
+            const key = `${selectedHexCoords.r}_${selectedHexCoords.c}`;
+            
+            // Кольори для трьох шляхів камінного віку
+            const pathColors = {
+                hunters: '#f97316',  // Помаранчевий (мисливці)
+                farmers: '#10b981',  // Зелений (землероби)
+                shamans: '#8b5cf6'   // Фіолетовий (шамани)
+            };
+
+            const newCore = {
+                owner: currentUsername,
+                color: pathColors[pathType] || '#3b82f6',
+                type: 'core',
+                pathSpecialization: pathType, // 'hunters', 'farmers', або 'shamans'
+                createdAt: Date.now()
+            };
+
+            try {
+                await update(ref(db, `world_hexes/${key}`), newCore);
+                closePathModal();
+            } catch (err) {
+                alert("Помилка заснування племені: " + err.message);
+            }
         }
         // ===== CANVAS РЕНДЕР-ЯДРО (60 FPS) =====
         function initCanvas() {
@@ -370,6 +416,15 @@
                 ctx.drawImage(staticCanvas, 0, 0, staticWorldW, staticWorldH);
             }
 
+            // Динамічний шар (підсвічування під курсором)
+            if (hoveredHex) {
+                const { x, y } = hexToPixel(hoveredHex.r, hoveredHex.c);
+                pathHex(ctx, x, y, HEX_RADIUS);
+                ctx.strokeStyle = '#38bdf8';
+                ctx.lineWidth = 2.5 / scale;
+                ctx.stroke();
+            }
+
             rafHandle = requestAnimationFrame(renderFrame);
         }
 
@@ -390,7 +445,7 @@
             g.clearRect(0, 0, W, H);
             g.setTransform(STATIC_SSAA, 0, 0, STATIC_SSAA, 0, 0);
 
-            // Малюємо легку і стильну сітку каменю
+            // 1. Малюємо сітку гексів
             g.strokeStyle = '#1b263b';
             g.lineWidth = 1.5;
             for (let r = 0; r < GRID_ROWS; r++) {
@@ -400,9 +455,47 @@
                     g.stroke();
                 }
             }
+
+            // 2. Малюємо території та головні споруди племен
+            for (const key in hexWorldData) {
+                const h = hexWorldData[key];
+                if (!h || !h.owner) continue;
+
+                const parts = key.split('_');
+                const r = parseInt(parts[0]), c = parseInt(parts[1]);
+                const { x, y } = hexToPixel(r, c);
+                pathHex(g, x, y, HEX_RADIUS);
+
+                // Заповнення гексу кольором племені
+                g.fillStyle = h.color || '#3b82f6';
+                g.globalAlpha = 0.65;
+                g.fill();
+                g.globalAlpha = 1;
+                g.strokeStyle = '#ffffff';
+                g.lineWidth = 2;
+                g.stroke();
+
+                // Малюємо іконку споруди залежно від обраного напрямку
+                drawStoneAgeCore(g, x, y, h.pathSpecialization);
+            }
         }
 
-        // ===== УПРАВЛІННЯ В'ЮПОРТОМ (Пан та зум) =====
+        // Візуалізація головних споруд трьох напрямків камінного віку
+        function drawStoneAgeCore(g, cx, cy, spec) {
+            g.save();
+            g.font = 'bold 16px sans-serif';
+            g.textAlign = 'center';
+            g.textBaseline = 'middle';
+
+            let icon = '⛺'; // Стандартний табір
+            if (spec === 'hunters') icon = '🏹';  // Мисливці-збирачі
+            if (spec === 'farmers') icon = '🌾';  // Землеробство
+            if (spec === 'shamans') icon = '🔮';  // Шаманізм
+
+            g.fillText(icon, cx, cy);
+            g.restore();
+        }
+        // ===== УПРАВЛІННЯ В'ЮПОРТОМ (Пан та Zoom) =====
         function setupViewportControls() {
             const viewport = document.getElementById('hex-grid-viewport');
             if (!viewport || viewport._controlsSetup) return;
@@ -410,6 +503,7 @@
 
             const clampScale = (s) => Math.min(Math.max(0.15, s), 2.5);
 
+            // Колесо миші для масштабування
             viewport.addEventListener('wheel', (e) => {
                 e.preventDefault();
                 const rect = viewport.getBoundingClientRect();
@@ -422,27 +516,125 @@
                 scheduleRender();
             }, { passive: false });
 
+            // Захоплення тачів та кліків миші
             viewport.addEventListener('pointerdown', (e) => {
                 viewport.setPointerCapture(e.pointerId);
-                isDragging = true;
-                dragStartX = e.clientX - panX;
-                dragStartY = e.clientY - panY;
+                activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+                if (activePointers.size === 1) {
+                    isDragging = true;
+                    isClick = true;
+                    dragMoved = false;
+                    dragStartX = e.clientX - panX;
+                    dragStartY = e.clientY - panY;
+                }
             });
 
             viewport.addEventListener('pointermove', (e) => {
+                if (!activePointers.has(e.pointerId)) {
+                    updateHover(e);
+                    return;
+                }
+                activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
                 if (!isDragging) return;
+                const dx = e.clientX - panX - dragStartX;
+                const dy = e.clientY - panY - dragStartY;
+                if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
+                    isClick = false;
+                    dragMoved = true;
+                }
                 panX = e.clientX - dragStartX;
                 panY = e.clientY - dragStartY;
                 scheduleRender();
             });
 
-            const endPointer = (e) => { isDragging = false; };
+            const endPointer = (e) => {
+                const wasSingle = activePointers.size === 1;
+                activePointers.delete(e.pointerId);
+
+                if (activePointers.size === 0) {
+                    isDragging = false;
+                    if (isClick && !dragMoved && wasSingle) {
+                        handleCanvasClick(e);
+                    }
+                }
+            };
             viewport.addEventListener('pointerup', endPointer);
             viewport.addEventListener('pointercancel', endPointer);
         }
 
-        window.zoomIn = function() { scale = Math.min(2.5, scale * 1.2); scheduleRender(); }
-        window.zoomOut = function() { scale = Math.max(0.15, scale / 1.2); scheduleRender(); }
+        // Оновлення курсора над гексом
+        function updateHover(e) {
+            const vp = document.getElementById('hex-grid-viewport');
+            const rect = vp.getBoundingClientRect();
+            const sx = e.clientX - rect.left;
+            const sy = e.clientY - rect.top;
+
+            const wx = (sx - panX) / scale;
+            const wy = (sy - panY) / scale;
+
+            const hex = pixelToHex(wx, wy);
+            if (hex) {
+                if (!hoveredHex || hoveredHex.r !== hex.r || hoveredHex.c !== hex.c) {
+                    hoveredHex = hex;
+                    scheduleRender();
+                }
+            } else if (hoveredHex) {
+                hoveredHex = null;
+                scheduleRender();
+            }
+        }
+
+        function handleCanvasClick(e) {
+            const vp = document.getElementById('hex-grid-viewport');
+            const rect = vp.getBoundingClientRect();
+            const sx = e.clientX - rect.left;
+            const sy = e.clientY - rect.top;
+
+            const wx = (sx - panX) / scale;
+            const wy = (sy - panY) / scale;
+
+            const hex = pixelToHex(wx, wy);
+            if (hex) handleHexClick(hex.r, hex.c);
+        }
+
+        window.zoomIn = function() { scale = Math.min(2.5, scale * 1.2); scheduleRender(); };
+        window.zoomOut = function() { scale = Math.max(0.15, scale / 1.2); scheduleRender(); };
+
+        // ===== СЛУХАЧІ ДАНИХ FIREBASE ТА ІГРОВИЙ ЦИКЛ =====
+        function listenToWorldData() {
+            if (unsubWorld) unsubWorld();
+            unsubWorld = onValue(ref(db, 'world_hexes'), (snapshot) => {
+                hexWorldData = snapshot.exists() ? snapshot.val() : {};
+                staticDirty = true;
+                scheduleRender();
+            });
+        }
+
+        function listenToUserData() {
+            if (unsubUser) unsubUser();
+            unsubUser = onValue(ref(db, `users/${currentUsername}`), (snapshot) => {
+                if (!snapshot.exists()) return;
+                const data = snapshot.val();
+                userResources = Math.floor(data.resources || 50);
+                const foodEl = document.getElementById('user-food-display');
+                if (foodEl) foodEl.innerText = userResources;
+            });
+        }
+
+        function startGameLoop() {
+            if (gameLoopInterval) clearInterval(gameLoopInterval);
+            gameLoopInterval = setInterval(async () => {
+                if (!currentUsername || gameLoopBusy) return;
+                gameLoopBusy = true;
+                try {
+                    // Майбутній приріст їжі та обробка подій
+                } catch (err) { console.error('Помилка циклу:', err); }
+                finally { gameLoopBusy = false; }
+            }, 3000);
+        }
+
         // ===== ІНІЦІАЛІЗАЦІЯ ПРИ ЗАВАНТАЖЕННІ =====
         window.addEventListener('load', () => {
             setTimeout(() => { hideLoader(); }, 800);
