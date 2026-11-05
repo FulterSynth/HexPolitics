@@ -116,6 +116,7 @@
             <button class="btn-cancel" onclick="closePathModal()">Скасувати</button>
         </div>
     </div>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getDatabase, ref, set, get, child, onValue, update, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
@@ -249,6 +250,7 @@
                 alert("Помилка вайпу: " + err.message);
             }
         };
+
         // ===== АВТОРИЗАЦІЯ ТА УПРАВЛІННЯ СПЕЦІАЛІЗАЦІЄЮ =====
         window.switchAuthMode = function(targetMode) {
             mode = targetMode;
@@ -301,7 +303,6 @@
                     document.getElementById('game-container').style.display = 'block';
                     document.getElementById('current-user-display').innerText = user;
 
-                    // Кнопка вайпу лише для admin
                     if (currentUsername.toLowerCase() === ADMIN_USERNAME.toLowerCase()) {
                         document.getElementById('admin-wipe-btn').style.display = 'inline-block';
                     } else {
@@ -356,9 +357,9 @@
             const key = `${selectedHexCoords.r}_${selectedHexCoords.c}`;
             
             const pathColors = {
-                hunters: '#f97316',  // Помаранчевий
-                farmers: '#10b981',  // Зелений
-                shamans: '#8b5cf6'   // Фіолетовий
+                hunters: '#f97316',
+                farmers: '#10b981',
+                shamans: '#8b5cf6'
             };
 
             const newCore = {
@@ -376,6 +377,7 @@
                 alert("Помилка створення споруди: " + err.message);
             }
         }
+
         // ===== CANVAS РЕНДЕР-ЯДРО (60 FPS) =====
         function initCanvas() {
             canvas = document.getElementById('hex-canvas');
@@ -436,7 +438,6 @@
                 ctx.drawImage(staticCanvas, 0, 0, staticWorldW, staticWorldH);
             }
 
-            // Підсвічування гекса під курсором (адаптивна товщина)
             if (hoveredHex) {
                 const { x, y } = hexToPixel(hoveredHex.r, hoveredHex.c);
                 pathHex(ctx, x, y, HEX_RADIUS);
@@ -465,7 +466,6 @@
             g.clearRect(0, 0, W, H);
             g.setTransform(STATIC_SSAA, 0, 0, STATIC_SSAA, 0, 0);
 
-            // 1. Малюємо загальну сітку карти
             g.strokeStyle = '#1b263b';
             g.lineWidth = 1.2;
             for (let r = 0; r < GRID_ROWS; r++) {
@@ -487,7 +487,6 @@
                 }
             }
 
-            // 2. Малюємо векторні іконки справжніх будівель кам'яного віку на головних гексах
             for (const owner in playerHexes) {
                 const data = playerHexes[owner];
                 for (const key of data.hexes) {
@@ -496,12 +495,11 @@
                         const parts = key.split('_');
                         const r = parseInt(parts[0]), c = parseInt(parts[1]);
                         const { x, y } = hexToPixel(r, c);
-                        drawStoneAgeBuilding(g, x, y, spec, data.color);
+                        drawDetailedStoneAgeBuilding(g, x, y, spec, data.color);
                     }
                 }
             }
 
-            // 3. Малюємо акуратний зовнішній контур з підсвічуванням навколо ВСІЄЇ території гравця
             for (const owner in playerHexes) {
                 const data = playerHexes[owner];
                 const hexSet = data.hexes;
@@ -525,67 +523,118 @@
             }
         }
 
-        // Стилізовані векторні споруди кам'яного віку (без ялинок!)
-        function drawStoneAgeBuilding(g, cx, cy, spec, color) {
+        function drawDetailedStoneAgeBuilding(g, cx, cy, spec, color) {
             g.save();
-            g.strokeStyle = color;
-            g.fillStyle = color;
-            g.lineWidth = 2.0;
 
             if (spec === 'hunters') {
-                // Мисливці: Вогнище з перехрещеними списами
-                // Багаття (трикутники полум'я)
+                g.fillStyle = 'rgba(0, 0, 0, 0.25)';
                 g.beginPath();
-                g.moveTo(cx, cy - 7);
-                g.lineTo(cx - 5, cy + 5);
-                g.lineTo(cx + 5, cy + 5);
-                g.closePath();
+                g.ellipse(cx, cy + 6, 14, 8, 0, 0, Math.PI * 2);
+                g.fill();
+
+                g.fillStyle = '#9a3412';
+                g.strokeStyle = '#ea580c';
+                g.lineWidth = 1.5;
+                g.beginPath();
+                g.arc(cx - 3, cy + 3, 11, Math.PI, 0, false);
+                g.fill();
                 g.stroke();
 
-                // Списи на задньому плані
+                g.strokeStyle = '#78350f';
+                g.lineWidth = 2;
                 g.beginPath();
-                g.moveTo(cx - 7, cy + 6);
-                g.lineTo(cx + 7, cy - 6);
-                g.moveTo(cx - 6, cy - 5);
-                g.lineTo(cx + 6, cy + 5);
+                g.moveTo(cx - 3, cy - 8);
+                g.lineTo(cx - 5, cy - 13);
+                g.moveTo(cx - 3, cy - 8);
+                g.lineTo(cx - 1, cy - 14);
                 g.stroke();
+
+                g.fillStyle = '#f59e0b';
+                g.beginPath();
+                g.moveTo(cx + 7, cy + 5);
+                g.lineTo(cx + 4, cy - 2);
+                g.lineTo(cx + 10, cy - 1);
+                g.closePath();
+                g.fill();
+
+                g.fillStyle = '#ef4444';
+                g.beginPath();
+                g.moveTo(cx + 7, cy + 5);
+                g.lineTo(cx + 5, cy);
+                g.lineTo(cx + 9, cy + 1);
+                g.closePath();
+                g.fill();
+
+                g.strokeStyle = '#d97706';
+                g.lineWidth = 1.5;
+                g.beginPath();
+                g.moveTo(cx + 1, cy + 8);
+                g.lineTo(cx + 12, cy - 6);
+                g.moveTo(cx + 11, cy + 7);
+                g.lineTo(cx, cy - 5);
+                g.stroke();
+
             } else if (spec === 'farmers') {
-                // Землеробство: Жорно (кам'яний круг) та колоски
-                // Кам'яний круг жорна
+                g.fillStyle = '#ca8a04';
+                g.strokeStyle = '#facc15';
+                g.lineWidth = 1.5;
                 g.beginPath();
-                g.arc(cx, cy + 2, 6, 0, Math.PI * 2);
-                g.stroke();
-
-                // Стебло і зерна пшениці зверху
-                g.beginPath();
-                g.moveTo(cx, cy + 4);
-                g.lineTo(cx, cy - 9);
-                g.moveTo(cx - 4, cy - 4);
-                g.lineTo(cx, cy - 8);
-                g.moveTo(cx + 4, cy - 4);
-                g.lineTo(cx, cy - 8);
-                g.stroke();
-            } else if (spec === 'shamans') {
-                // Шаманізм: Мегалітичний дольмен (кам'яний портал духів)
-                // Лівий мегаліт
-                g.strokeRect(cx - 7, cy - 4, 3, 11);
-                // Правий мегаліт
-                g.strokeRect(cx + 4, cy - 4, 3, 11);
-                // Верхня масивна плита перекриття
-                g.beginPath();
-                g.moveTo(cx - 9, cy - 5);
-                g.lineTo(cx + 9, cy - 5);
-                g.lineTo(cx + 7, cy - 9);
-                g.lineTo(cx - 7, cy - 9);
+                g.moveTo(cx - 10, cy);
+                g.lineTo(cx, cy - 10);
+                g.lineTo(cx + 10, cy);
                 g.closePath();
+                g.fill();
                 g.stroke();
 
-                // Енергетичне сяйво всередині порталу
+                g.fillStyle = '#78350f';
+                g.fillRect(cx - 7, cy, 14, 9);
+
+                g.fillStyle = '#64748b';
+                g.strokeStyle = '#94a3b8';
+                g.lineWidth = 1.2;
                 g.beginPath();
-                g.arc(cx, cy + 1, 2.5, 0, Math.PI * 2);
-                g.fillStyle = color;
+                g.arc(cx - 8, cy + 7, 5, 0, Math.PI * 2);
+                g.fill();
+                g.stroke();
+
+                g.strokeStyle = '#fde047';
+                g.lineWidth = 1.5;
+                g.beginPath();
+                g.moveTo(cx + 8, cy + 9);
+                g.lineTo(cx + 8, cy - 3);
+                g.moveTo(cx + 12, cy + 9);
+                g.lineTo(cx + 12, cy - 1);
+                g.stroke();
+
+            } else if (spec === 'shamans') {
+                g.fillStyle = '#475569';
+                g.strokeStyle = '#94a3b8';
+                g.lineWidth = 1.5;
+
+                g.fillRect(cx - 9, cy - 4, 4, 12);
+                g.strokeRect(cx - 9, cy - 4, 4, 12);
+
+                g.fillRect(cx + 5, cy - 4, 4, 12);
+                g.strokeRect(cx + 5, cy - 4, 4, 12);
+
+                g.beginPath();
+                g.moveTo(cx - 12, cy - 5);
+                g.lineTo(cx + 12, cy - 5);
+                g.lineTo(cx + 9, cy - 11);
+                g.lineTo(cx - 9, cy - 11);
+                g.closePath();
+                g.fillStyle = '#334155';
+                g.fill();
+                g.stroke();
+
+                g.shadowColor = '#c084fc';
+                g.shadowBlur = 10;
+                g.fillStyle = '#e879f9';
+                g.beginPath();
+                g.arc(cx, cy + 3, 4, 0, Math.PI * 2);
                 g.fill();
             }
+
             g.restore();
         }
 
