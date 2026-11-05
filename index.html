@@ -3,20 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>HexPolitics v6.0.0</title>
+    <title>HexPolitics v6.1.0</title>
     <!--
     ============================================
     HexPolitics — браузерна гекс-стратегія
-    ПОТОЧНА ВЕРСІЯ: v6.0.0 (Canvas 2D)
+    ПОТОЧНА ВЕРСІЯ: v6.1.0 (Canvas 2D + SSAA)
 
-    ЩО ЗМІНИЛОСЬ:
-    - v6.0.0: ПОВНИЙ ПЕРЕХІД НА CANVAS 2D
-               * SVG → <canvas> (1 елемент замість 4000+)
-               * Offscreen-кеш статики (території + будівлі)
-               * Диференціальний рендер динаміки
-               * pixelToHex — hit-test через математику
-               * Спрайт-кеш для юнітів
-               * Анімація без reflow/repaint DOM
+    ЩО ЗМІНИЛОСЬ v6.1.0:
+    - Будівлі тепер малюються в динамічному шарі
+      → чіткі, як юніти
+    - Статика кешується з SSAA=2 (super-sampling)
+    - Анімації завжди активні (60 fps)
+    - Лопаті вітряка крутяться постійно
+    - Пульс idle-воїнів працює
+    - Покращені градієнти на будівлях
+    - Видимість гексів (culling) для великих карт
     ============================================
     -->
     <style>
@@ -118,7 +119,6 @@
         .hex-balance-value { font-weight: bold; }
         .hex-balance-total { border-top: 1px solid #334155; margin-top: 4px; padding-top: 6px; }
 
-        /* Кнопки zoom */
         #zoom-controls { position: absolute; bottom: 15px; right: 15px; display: flex; flex-direction: column; gap: 6px; z-index: 500; }
         #zoom-controls button { width: 40px; height: 40px; border-radius: 8px; border: 1px solid #475569; background: rgba(30, 41, 59, 0.95); color: #fff; font-size: 18px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
         #zoom-controls button:hover { background: #334155; }
@@ -129,8 +129,8 @@
     <div id="update-loader">
         <div class="loader-content">
             <div class="spinner"></div>
-            <h2 id="loader-status">HexPolitics v6.0.0</h2>
-            <p id="loader-desc">Canvas 2D renderer...</p>
+            <h2 id="loader-status">HexPolitics v6.1.0</h2>
+            <p id="loader-desc">Canvas 2D + SSAA + анімації...</p>
         </div>
     </div>
 
@@ -265,16 +265,14 @@
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
 
-        // ===== КОНСТАНТИ ГРИ =====
+        // ===== КОНСТАНТИ =====
         const ADMIN_USERNAME = "admin";
-        const CURRENT_VERSION = "6.0.0";
+        const CURRENT_VERSION = "6.1.0";
 
         const LOD_ZOOM_THRESHOLD = 0.35;
-
         const GRID_ROWS = 25;
         const GRID_COLS = 25;
         const HEX_RADIUS = 26;
-
         const BARBARIAN_TARGET_COUNT = 12;
 
         const FIGHT_ROUND_MS = 5000;
@@ -304,13 +302,7 @@
         const BRIDGE_PRICE = 30;
         const BRIDGE_SELL_REFUND = 15;
 
-        const BARBARIAN_CAMP = {
-            hp: 80,
-            dmg: 25,
-            rewardMin: 10,
-            rewardMax: 15
-        };
-
+        const BARBARIAN_CAMP = { hp: 80, dmg: 25, rewardMin: 10, rewardMax: 15 };
         const BARBARIAN_REGEN_MS = 3 * 60 * 1000;
         const RESPAWN_CHECK_MS = 60 * 60 * 1000;
 
@@ -324,7 +316,9 @@
         const ROB_FARM_HEAL = 20;
         const ROB_MILL_GOLD = 5;
 
-        // ===== ХЕЛПЕРИ КОНСТАНТ =====
+        // ===== SSAA для статичного кешу =====
+        const STATIC_SSAA = 2;
+
         function getCoreMaxHp(level) { return CORE_HP_BY_LEVEL[level] || CORE_HP_BY_LEVEL[1]; }
         function getCoreDmg(level) { return CORE_DMG_BY_LEVEL[level] || CORE_DMG_BY_LEVEL[1]; }
         function getCoreGoldCap(level) { return CORE_GOLD_CAP[level] || CORE_GOLD_CAP[1]; }
@@ -360,15 +354,10 @@
         let panX = 0;
         let panY = 0;
 
-        // Статичний шар (offscreen canvas)
         let staticCanvas = null;
         let staticCtx = null;
         let staticWorldW = 0, staticWorldH = 0;
         let staticDirty = true;
-
-        // Кеш іконок/спрайтів
-        const unitSpriteCache = new Map();
-        const buildingSpriteCache = new Map();
 
         // Кеш обчислень
         let playerColorCache = {};
@@ -388,10 +377,11 @@
 
         // Рендер-цикл
         let renderScheduled = false;
-        let needsContinuousRender = false;
-        let lastRenderTime = 0;
-        let fpsCounter = 0;
-        let fpsTimer = 0;
+        let rafHandle = 0;
+        let lastFrameTime = 0;
+        let frameCount = 0;
+        let fpsAccum = 0;
+        let currentFps = 0;
 
         // Inbox
         let lastInboxCount = 0;
@@ -400,11 +390,13 @@
         // ZOC
         let showAllEnemyZOC = false;
 
-        // ===== ІНВАЛІДАЦІЯ КЕШІВ =====
+        // Міграції
+        let coreHpMigrated = false;
+
+        // ===== ІНВАЛІДАЦІЯ =====
         function invalidateColorCache() { playerColorCache = {}; }
         function invalidateCoreHpCache() { _coreHpCache.clear(); }
         function invalidateStepMsCache() { _stepMsCache.clear(); }
-        function invalidateBuildingSpriteCache() { buildingSpriteCache.clear(); }
 
         function getCoreMaxHpCached(level) {
             let v = _coreHpCache.get('lvl_' + level);
@@ -491,24 +483,20 @@
             return neighbors;
         }
 
-        // ===== ЗВОРОТНЯ ФОРМУЛА: екран -> гекс =====
         function pixelToHex(px, py) {
             const R = HEX_RADIUS;
             const x = px - R;
             const y = py - R;
 
-            // pointy-top, offset odd-r -> cube
             const q = (Math.sqrt(3) / 3 * x - 1 / 3 * y) / R;
             const rr = (2 / 3 * y) / R;
             const s = -q - rr;
 
-            // cube round
             let rq = Math.round(q), rr2 = Math.round(rr), rs = Math.round(s);
             const dq = Math.abs(rq - q), dr = Math.abs(rr2 - rr), ds = Math.abs(rs - s);
             if (dq > dr && dq > ds) rq = -rr2 - rs;
             else if (dr > ds) rr2 = -rq - rs;
 
-            // cube -> offset odd-r
             const col = rq + (rr2 - (rr2 & 1)) / 2;
             const row = rr2;
 
@@ -516,7 +504,6 @@
             return { r: row, c: col };
         }
 
-        // ===== ШЛЯХ ПО CANVAS-КООРДИНАТАХ =====
         function pathHex(g, cx, cy, radius) {
             g.beginPath();
             for (let i = 0; i < 6; i++) {
@@ -529,7 +516,7 @@
             g.closePath();
         }
 
-        // ===== СЛУЖБОВІ ФУНКЦІЇ =====
+        // ===== СЛУЖБОВІ =====
         function saveLastOnline() {
             if (!currentUsername) return;
             try { update(ref(db, `users/${currentUsername}`), { lastOnline: Date.now() }); } catch (e) {}
@@ -544,7 +531,7 @@
 
         function showUpdateScreen() {
             const l = document.getElementById('update-loader');
-            document.getElementById('loader-status').innerText = "HexPolitics v6.0.0";
+            document.getElementById('loader-status').innerText = "HexPolitics v6.1.0";
             document.getElementById('loader-desc').innerText = "Оновлення...";
             l.style.display = 'flex';
             l.style.opacity = '1';
@@ -597,18 +584,18 @@
                 if (!snap.exists()) return;
                 const world = snap.val();
                 const toDelete = [];
-                Object.keys(world).forEach(key => {
-                    const [r, c] = key.split('_').map(Number);
-                    if (isNaN(r) || isNaN(c)) { toDelete.push(key); return; }
+                for (const key in world) {
+                    const parts = key.split('_').map(Number);
+                    const r = parts[0], c = parts[1];
+                    if (isNaN(r) || isNaN(c)) { toDelete.push(key); continue; }
                     if (r >= GRID_ROWS || c >= GRID_COLS || r < 0 || c < 0) toDelete.push(key);
-                });
+                }
                 if (toDelete.length > 0) {
-                    console.log(`[Міграція 60→25] Видаляю ${toDelete.length} гексів...`);
                     const updates = {};
                     toDelete.forEach(k => { updates[`world_hexes/${k}`] = null; });
                     await update(ref(db), updates);
                 }
-            } catch (err) { console.error('[Міграція 60→25] Помилка:', err); }
+            } catch (err) { console.error('[Міграція 60→25]', err); }
         }
 
         async function migrateBarbarianCampsToUnified() {
@@ -618,9 +605,9 @@
                 const world = snap.val();
                 const updates = {};
                 let count = 0;
-                Object.keys(world).forEach(key => {
+                for (const key in world) {
                     const h = world[key];
-                    if (!h || h.type !== 'barbarian_camp') return;
+                    if (!h || h.type !== 'barbarian_camp') continue;
                     if (h.level !== undefined) {
                         updates[`world_hexes/${key}`] = {
                             type: 'barbarian_camp',
@@ -636,9 +623,9 @@
                         };
                         count++;
                     }
-                });
-                if (count > 0) { console.log(`[Міграція таборів] Оновлено ${count} таборів`); await update(ref(db), updates); }
-            } catch (err) { console.error('[Міграція таборів] Помилка:', err); }
+                }
+                if (count > 0) await update(ref(db), updates);
+            } catch (err) { console.error('[Міграція таборів]', err); }
         }
 
         async function migrateUnitsToNewSchema() {
@@ -648,9 +635,9 @@
                 const world = snap.val();
                 const updates = {};
                 let count = 0;
-                Object.keys(world).forEach(key => {
+                for (const key in world) {
                     const h = world[key];
-                    if (!h) return;
+                    if (!h) continue;
                     if (h.unit && !h.units) {
                         let oldUnit = h.unit;
                         if (h.unit.owner === currentUsername && h.unit.type === 'clubman') {
@@ -660,12 +647,9 @@
                         updates[`world_hexes/${key}/unit`] = null;
                         count++;
                     }
-                });
-                if (count > 0) {
-                    console.log(`[Міграція юнітів] Оновлено ${count} гексів`);
-                    await update(ref(db), updates);
                 }
-            } catch (err) { console.error('[Міграція юнітів] Помилка:', err); }
+                if (count > 0) await update(ref(db), updates);
+            } catch (err) { console.error('[Міграція юнітів]', err); }
         }
 
         async function migrateBanksOnce() {
@@ -675,7 +659,7 @@
                 const world = snap.val();
                 const updates = {};
                 let count = 0;
-                Object.keys(world).forEach(key => {
+                for (const key in world) {
                     const h = world[key];
                     if (!h || h.type !== 'bank') return;
                     const stored = Math.floor(h.stored || 0);
@@ -685,12 +669,12 @@
                         if (h.acceptingGold === undefined) updates[`world_hexes/${key}/acceptingGold`] = true;
                         count++;
                     }
-                });
-                if (count > 0) { console.log(`[Міграція банків] Оновлено ${count} банків`); await update(ref(db), updates); }
-            } catch (err) { console.error('[Міграція банків] Помилка:', err); }
+                }
+                if (count > 0) await update(ref(db), updates);
+            } catch (err) { console.error('[Міграція банків]', err); }
         }
 
-        // ===== ОБРОБНИК АВТОРИЗАЦІЇ =====
+        // ===== АВТОРИЗАЦІЯ =====
         window.handleAuth = async function() {
             const user = document.getElementById('username').value.trim();
             const pass = document.getElementById('password').value.trim();
@@ -712,9 +696,9 @@
                     invalidateColorCache();
                     invalidateCoreHpCache();
                     invalidateStepMsCache();
-                    invalidateBuildingSpriteCache();
                     lastInboxCount = 0;
                     inboxInitialized = false;
+                    coreHpMigrated = false;
 
                     await migrateWorldTo25Once();
                     await migrateBarbarianCampsToUnified();
@@ -774,6 +758,8 @@
             if (unsubWorld) { unsubWorld(); unsubWorld = null; }
             if (unsubUser) { unsubUser(); unsubUser = null; }
 
+            if (rafHandle) { cancelAnimationFrame(rafHandle); rafHandle = 0; }
+
             cancelMoveMode();
             hideAllModals();
             showAllEnemyZOC = false;
@@ -786,8 +772,6 @@
             playerColorCache = {};
             _coreHpCache.clear();
             _stepMsCache.clear();
-            buildingSpriteCache.clear();
-            unitSpriteCache.clear();
 
             lastInboxCount = 0;
             inboxInitialized = false;
@@ -814,15 +798,6 @@
                 if (h && h.owner === username && h.type === 'bank') bankSum += (h.capacity || BANK_CAPACITY_SMALL);
             }
             return Math.max(coreLimit, bankSum);
-        }
-
-        function getTotalStoredInBanks(username) {
-            let total = 0;
-            for (const k in hexWorldData) {
-                const h = hexWorldData[k];
-                if (h && h.owner === username && h.type === 'bank') total += (h.stored || 0);
-            }
-            return total;
         }
 
         function getBankUpkeep(bankHex) {
@@ -897,8 +872,7 @@
                         const r = parseInt(parts[0]), c = parseInt(parts[1]);
                         let isNearMyCore = false;
                         if (!isNaN(r) && !isNaN(c)) {
-                            const neighbors = getNeighbors(r, c);
-                            for (const n of neighbors) {
+                            for (const n of getNeighbors(r, c)) {
                                 const nh = worldHexes[n.key];
                                 if (nh && nh.type === 'core' && nh.owner === username) { isNearMyCore = true; break; }
                             }
@@ -913,17 +887,17 @@
                 }
             }
 
-            let baseIncome = getIncomeByLevel(baseLevel) + farmsCount;
+            const baseIncome = getIncomeByLevel(baseLevel) + farmsCount;
 
             for (const key in worldHexes) {
                 const h = worldHexes[key];
                 if (h.owner === username && h.type === 'mill') {
                     const parts = key.split('_');
                     const r = parseInt(parts[0]), c = parseInt(parts[1]);
-                    getNeighbors(r, c).forEach(n => {
+                    for (const n of getNeighbors(r, c)) {
                         const nKey = `${n.r}_${n.c}`;
                         if (worldHexes[nKey] && worldHexes[nKey].owner === username && worldHexes[nKey].type === 'farm') millsBonus += 1;
-                    });
+                    }
                 }
             }
 
@@ -987,6 +961,55 @@
             return mapData;
         }
 
+        async function tryRespawnBarbarians() {
+            if (!currentUsername) return;
+            try {
+                const snap = await get(ref(db, 'world_hexes'));
+                if (!snap.exists()) return;
+                const world = snap.val();
+                let campCount = 0;
+                for (const k in world) {
+                    if (world[k] && world[k].type === 'barbarian_camp') campCount++;
+                }
+                if (campCount >= BARBARIAN_TARGET_COUNT) return;
+
+                const candidates = [];
+                for (let r = 0; r < GRID_ROWS; r++) {
+                    for (let c = 0; c < GRID_COLS; c++) {
+                        const key = `${r}_${c}`;
+                        if (!world[key]) candidates.push(key);
+                    }
+                }
+                if (candidates.length === 0) return;
+
+                const chosenKey = candidates[Math.floor(Math.random() * candidates.length)];
+                await update(ref(db), { [`world_hexes/${chosenKey}`]: makeBarbarianCamp() });
+            } catch (err) { console.error('[Респавн]', err); }
+        }
+
+        function startRespawnLoop() {
+            if (respawnInterval) clearInterval(respawnInterval);
+            respawnInterval = setInterval(tryRespawnBarbarians, RESPAWN_CHECK_MS);
+        }
+
+        window.triggerAdminWipe = async function() {
+            if (!confirm("⚠️ ВАЙП СЕЗОНУ HexPolitics")) return;
+            try {
+                await set(ref(db, 'world_hexes'), generateInitialMap());
+                const usersSnapshot = await get(ref(db, 'users'));
+                if (usersSnapshot.exists()) {
+                    const updates = {};
+                    const users = usersSnapshot.val();
+                    for (const u in users) {
+                        updates[`users/${u}/gold`] = 0;
+                        updates[`users/${u}/townHallLevel`] = 1;
+                    }
+                    await update(ref(db), updates);
+                }
+                alert("💥 Сезон перезапущено!");
+            } catch (err) { alert("Помилка вайпу: " + err.message); }
+        }
+
         // ===== ОФЛАЙН-ПРОГРЕС =====
         async function processOfflineCoreHeal(worldHexes) {
             const now = Date.now();
@@ -1014,7 +1037,7 @@
                             worldHexes[key].lastHealAt = updates[`world_hexes/${key}/lastHealAt`];
                         }
                     }
-                } catch (err) { console.error('Помилка офлайн-авторемонту:', err); }
+                } catch (err) { console.error('Офлайн-авторемонт:', err); }
             }
             return { totalHealed, myHealed };
         }
@@ -1072,58 +1095,6 @@
                 await update(userRef, { lastOnline: Date.now() });
                 alert(`💰 Поки вкладка була неактивна (${Math.floor(diffMinutes)} хв), накапало: +${Math.floor(earned)} золота!`);
             } catch (e) { console.error('Помилка повернення:', e); }
-        }
-
-        // ===== РЕСПАВН ВАРВАРІВ =====
-        async function tryRespawnBarbarians() {
-            if (!currentUsername) return;
-            try {
-                const snap = await get(ref(db, 'world_hexes'));
-                if (!snap.exists()) return;
-                const world = snap.val();
-                let campCount = 0;
-                for (const k in world) {
-                    if (world[k] && world[k].type === 'barbarian_camp') campCount++;
-                }
-                if (campCount >= BARBARIAN_TARGET_COUNT) return;
-
-                const candidates = [];
-                for (let r = 0; r < GRID_ROWS; r++) {
-                    for (let c = 0; c < GRID_COLS; c++) {
-                        const key = `${r}_${c}`;
-                        if (!world[key]) candidates.push(key);
-                    }
-                }
-                if (candidates.length === 0) return;
-
-                const chosenKey = candidates[Math.floor(Math.random() * candidates.length)];
-                const updates = {};
-                updates[`world_hexes/${chosenKey}`] = makeBarbarianCamp();
-                await update(ref(db), updates);
-            } catch (err) { console.error('[Респавн] Помилка:', err); }
-        }
-
-        function startRespawnLoop() {
-            if (respawnInterval) clearInterval(respawnInterval);
-            respawnInterval = setInterval(tryRespawnBarbarians, RESPAWN_CHECK_MS);
-        }
-
-        window.triggerAdminWipe = async function() {
-            if (!confirm("⚠️ ВАЙП СЕЗОНУ HexPolitics")) return;
-            try {
-                await set(ref(db, 'world_hexes'), generateInitialMap());
-                const usersSnapshot = await get(ref(db, 'users'));
-                if (usersSnapshot.exists()) {
-                    const updates = {};
-                    const users = usersSnapshot.val();
-                    for (const u in users) {
-                        updates[`users/${u}/gold`] = 0;
-                        updates[`users/${u}/townHallLevel`] = 1;
-                    }
-                    await update(ref(db), updates);
-                }
-                alert("💥 Сезон перезапущено!");
-            } catch (err) { alert("Помилка вайпу: " + err.message); }
         }
 
         // ===== UI-ДИСПЛЕЙ =====
@@ -1205,7 +1176,7 @@
                 } catch (err) { console.error(err); }
             }, 20000);
         }
-                // ===== БІЙ ТА РУХ =====
+                // ===== БІЙ ТА РУХ — ХЕЛПЕРИ =====
         function stopTravel(unit) {
             const u = { ...unit, state: 'idle' };
             delete u.targetKey;
@@ -1244,8 +1215,7 @@
 
         function isHexInEnemyZOC(r, c) {
             const targetKey = `${r}_${c}`;
-            const neighbors = getNeighbors(r, c);
-            const checkHexes = [{ key: targetKey, r, c }, ...neighbors];
+            const checkHexes = [{ key: targetKey, r, c }, ...getNeighbors(r, c)];
 
             for (const cell of checkHexes) {
                 const h = hexWorldData[cell.key];
@@ -1268,13 +1238,6 @@
             const h = hexWorldData[key];
             if (!h || !h.units || !h.units.military) return false;
             if (ignoreUnitId && h.units.military.id === ignoreUnitId) return false;
-            return true;
-        }
-
-        function isCivilianOnHex(key, ignoreUnitId) {
-            const h = hexWorldData[key];
-            if (!h || !h.units || !h.units.civilian) return false;
-            if (ignoreUnitId && h.units.civilian.id === ignoreUnitId) return false;
             return true;
         }
 
@@ -1376,32 +1339,30 @@
             let rewardGold = 0;
             try {
                 const gSnap = await get(ref(db, `users/${defenderOwner}/gold`));
-                if (gSnap.exists()) {
-                    const enemyGold = gSnap.val() || 0;
-                    rewardGold = Math.floor(enemyGold * 0.5);
-                }
+                if (gSnap.exists()) rewardGold = Math.floor((gSnap.val() || 0) * 0.5);
             } catch (err) { console.error('Помилка отримання золота ворога:', err); }
 
             const newHexesForWinner = {};
-            const [tr, tc] = targetKey.split('_').map(Number);
+            const parts = targetKey.split('_').map(Number);
+            const tr = parts[0], tc = parts[1];
             const winnerColor = getPlayerColor(winnerOwner);
 
             newHexesForWinner[targetKey] = { owner: winnerOwner, color: winnerColor, type: 'starter', isPurchased: false, units: { military: null, civilian: null } };
 
-            getNeighbors(tr, tc).forEach(n => {
+            for (const n of getNeighbors(tr, tc)) {
                 const nHex = hexWorldData[n.key];
-                if (!nHex) return;
-                if (nHex.type === 'chasm') return;
+                if (!nHex) continue;
+                if (nHex.type === 'chasm') continue;
                 newHexesForWinner[n.key] = {
                     owner: winnerOwner, color: winnerColor, type: nHex.type,
                     isPurchased: nHex.isPurchased || false, level: nHex.level,
                     units: { military: null, civilian: null }
                 };
-            });
+            }
 
             const defenderMilitary = findAllMilitaryOfOwner(defenderOwner);
             let killedCount = 0;
-            defenderMilitary.forEach(({ srcKey, unit }) => {
+            defenderMilitary.forEach(({ srcKey }) => {
                 if (newHexesForWinner[srcKey]) return;
                 const h = hexWorldData[srcKey];
                 if (!h) return;
@@ -1462,7 +1423,6 @@
             return { goldReward: rewardGold, goldOwner: winnerOwner, messages, newHexes: newHexesForWinner, defenderOwner, winnerOwner };
         }
 
-        // ===== ВНУТРІШНЯ ФУНКЦІЯ: ВБИВСТВО ВОЇНА =====
         function _killMilitary(hexUpdates, srcKey, unitId, getHex, setHex, messages, pushMsgIfMine) {
             const h = { ...(getHex(srcKey) || {}) };
             if (h.units && h.units.military && h.units.military.id === unitId) {
@@ -1476,7 +1436,7 @@
         }
 
         // =====================================================================
-        // ГОЛОВНА ФУНКЦІЯ ОБРОБКИ ЮНІТІВ (бій, рух, гонець)
+        // ГОЛОВНА ФУНКЦІЯ ОБРОБКИ ЮНІТІВ
         // =====================================================================
         async function processUnits(now, isOffline = false) {
             const hexUpdates = {};
@@ -1488,7 +1448,7 @@
             const setHex = (key, obj) => { hexUpdates[key] = obj; };
             const pushMsgIfMine = (unitOwner, text) => { if (unitOwner === currentUsername) messages.push(text); };
 
-            // 1. Збираємо всі події (юніти, що прибули)
+            // 1. Збираємо події
             const events = [];
             for (const key in hexWorldData) {
                 const h = hexWorldData[key];
@@ -1527,7 +1487,7 @@
 
                 const targetHex = getHex(targetKey);
 
-                // ============ ЦИВІЛЬНИЙ ЮНІТ (Гонець) ============
+                // ============ ЦИВІЛЬНИЙ (Гонець) ============
                 if (kind === 'civilian') {
                     if (targetHex && targetHex.type === 'chasm') {
                         const h = { ...(getHex(srcKey) || {}) };
@@ -1568,7 +1528,7 @@
                         continue;
                     }
 
-                    // Зайнято іншим гінцем
+                    // Зайнято
                     if (targetHex && targetHex.units && targetHex.units.civilian) {
                         const h = { ...(getHex(srcKey) || {}) };
                         if (!h.units) h.units = { military: null, civilian: null };
@@ -1605,10 +1565,10 @@
                     continue;
                 }
 
-                // ============ ВІЙСЬКОВИЙ ЮНІТ ============
+                // ============ ВІЙСЬКОВИЙ ============
                 const targetMil = targetHex && targetHex.units ? targetHex.units.military : null;
 
-                // --- ФАЗА БОЮ ---
+                // ФАЗА БОЮ
                 if (unit.state === 'fighting') {
                     // Банк
                     if (targetHex && targetHex.type === 'bank' && targetHex.owner && targetHex.owner !== unitOwner) {
@@ -1847,7 +1807,7 @@
                     continue;
                 }
 
-                // --- ФАЗА РУХУ (military) ---
+                // ФАЗА РУХУ
                 if (unit.state === 'moving') {
                     if (targetHex && targetHex.type === 'chasm') {
                         const h = { ...(getHex(srcKey) || {}) };
@@ -1858,19 +1818,17 @@
                         continue;
                     }
 
-                    if (targetHex && targetHex.type === 'bank' && targetHex.owner && targetHex.owner !== unitOwner) {
-                        if (!targetMil) {
-                            const srcH = { ...(getHex(srcKey) || {}) };
-                            if (!srcH.units) srcH.units = { military: null, civilian: null };
-                            srcH.units.military = null;
-                            setHex(srcKey, srcH);
-                            const tgtH = { ...targetHex };
-                            if (!tgtH.units) tgtH.units = { military: null, civilian: null };
-                            tgtH.units.military = stopTravel(unit);
-                            setHex(targetKey, tgtH);
-                            processedUnits.add(unit.id);
-                            continue;
-                        }
+                    if (targetHex && targetHex.type === 'bank' && targetHex.owner && targetHex.owner !== unitOwner && !targetMil) {
+                        const srcH = { ...(getHex(srcKey) || {}) };
+                        if (!srcH.units) srcH.units = { military: null, civilian: null };
+                        srcH.units.military = null;
+                        setHex(srcKey, srcH);
+                        const tgtH = { ...targetHex };
+                        if (!tgtH.units) tgtH.units = { military: null, civilian: null };
+                        tgtH.units.military = stopTravel(unit);
+                        setHex(targetKey, tgtH);
+                        processedUnits.add(unit.id);
+                        continue;
                     }
 
                     if (targetMil && targetMil.owner !== unitOwner) {
@@ -1966,8 +1924,7 @@
             const updates = {};
             for (const k in hexUpdates) updates[`world_hexes/${k}`] = hexUpdates[k];
 
-            const ownerNames = Object.keys(goldByOwner);
-            for (const ownerName of ownerNames) {
+            for (const ownerName in goldByOwner) {
                 const amount = goldByOwner[ownerName];
                 if (amount <= 0) continue;
                 if (ownerName === currentUsername) continue;
@@ -1976,7 +1933,7 @@
                     if (!gSnap.exists()) continue;
                     const currentG = gSnap.val() || 0;
                     updates[`users/${ownerName}/gold`] = Math.floor(currentG + amount);
-                } catch (err) { console.error(`Не вдалось зарахувати ${amount} гравцю ${ownerName}:`, err); }
+                } catch (err) { console.error(`Зарахування ${amount} гравцю ${ownerName}:`, err); }
             }
 
             if (Object.keys(updates).length > 0) await update(ref(db), updates);
@@ -2047,15 +2004,23 @@
             if (report.length) alert("Поки вас не було:\n" + report.join("\n"));
         }
                 // =====================================================================
-        // CANVAS-ЯДРО: ініціалізація, resize, рендер-цикл
+        // CANVAS-ЯДРО
         // =====================================================================
         function initCanvas() {
             canvas = document.getElementById('hex-canvas');
             if (!canvas) { console.error('[Canvas] Не знайдено #hex-canvas'); return; }
             ctx = canvas.getContext('2d', { alpha: false });
 
+            // Гладкі лінії
+            ctx.imageSmoothingEnabled = true;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+
             staticCanvas = document.createElement('canvas');
             staticCtx = staticCanvas.getContext('2d', { alpha: true });
+            staticCtx.imageSmoothingEnabled = true;
+            staticCtx.lineJoin = 'round';
+            staticCtx.lineCap = 'round';
 
             resizeCanvas();
             window.addEventListener('resize', resizeCanvas);
@@ -2077,23 +2042,43 @@
             canvas.style.width = viewW + 'px';
             canvas.style.height = viewH + 'px';
 
+            if (ctx) {
+                ctx.imageSmoothingEnabled = true;
+                ctx.lineJoin = 'round';
+                ctx.lineCap = 'round';
+            }
             scheduleRender();
         }
 
-        // ===== РЕНДЕР-ЦИКЛ =====
+        // ===== РЕНДЕР-ЦИКЛ (завжди 60 fps) =====
         function scheduleRender() {
             if (renderScheduled) return;
             renderScheduled = true;
-            requestAnimationFrame(renderFrame);
+            rafHandle = requestAnimationFrame(renderFrame);
         }
 
         function renderFrame(ts) {
             renderScheduled = false;
-            lastRenderTime = ts;
 
-            if (!ctx || !canvas) return;
+            // FPS-лічильник
+            if (lastFrameTime > 0) {
+                const delta = ts - lastFrameTime;
+                fpsAccum += delta;
+                frameCount++;
+                if (fpsAccum >= 1000) {
+                    currentFps = Math.round(frameCount * 1000 / fpsAccum);
+                    frameCount = 0;
+                    fpsAccum = 0;
+                }
+            }
+            lastFrameTime = ts;
 
-            // 1. Статика
+            if (!ctx || !canvas) {
+                rafHandle = requestAnimationFrame(renderFrame);
+                return;
+            }
+
+            // 1. Статика (тільки якщо треба)
             if (staticDirty) rebuildStaticLayer();
 
             // 2. Очищення
@@ -2108,39 +2093,21 @@
                 dpr * panX, dpr * panY
             );
 
-            // 4. Статичний шар (території + будівлі) з кешу
+            // 4. Статичний шар (SSAA=2 → ділимо на 2)
             if (staticCanvas && staticWorldW > 0) {
-                ctx.drawImage(staticCanvas, 0, 0);
+                ctx.drawImage(staticCanvas, 0, 0, staticWorldW, staticWorldH);
             }
 
-            // 5. Динаміка (юніти, ефекти, hover)
+            // 5. Динаміка (будівлі + юніти + ефекти)
             drawDynamicLayer(ctx);
 
-            // 6. Анімація: якщо є рухомі юніти/бої — продовжуємо
-            if (needsContinuousRender || hasAnimatedUnits()) {
-                scheduleRender();
-            }
-        }
-
-        function hasAnimatedUnits() {
-            for (const k in hexWorldData) {
-                const h = hexWorldData[k];
-                if (!h || !h.units) continue;
-                const m = h.units.military;
-                const civ = h.units.civilian;
-                if (m && (m.state === 'moving' || m.state === 'fighting')) return true;
-                if (civ && civ.state === 'moving') return true;
-            }
-            // вітряки (лопаті крутяться) — теж анімація
-            for (const k in hexWorldData) {
-                const h = hexWorldData[k];
-                if (h && h.type === 'mill') return true;
-            }
-            return false;
+            // 6. Завжди продовжуємо — анімації!
+            rafHandle = requestAnimationFrame(renderFrame);
         }
 
         // =====================================================================
-        // СТАТИЧНИЙ ШАР: території + будівлі
+        // СТАТИЧНИЙ ШАР: фон + прірви + території (БЕЗ будівель!)
+        // Малюється в SSAA-роздільності для чіткості при zoom
         // =====================================================================
         function rebuildStaticLayer() {
             staticDirty = false;
@@ -2148,8 +2115,8 @@
             staticWorldW = GRID_COLS * HEX_RADIUS * Math.sqrt(3) + HEX_RADIUS * 2;
             staticWorldH = GRID_ROWS * HEX_RADIUS * 1.5 + HEX_RADIUS * 2;
 
-            const W = Math.ceil(staticWorldW);
-            const H = Math.ceil(staticWorldH);
+            const W = Math.ceil(staticWorldW * STATIC_SSAA);
+            const H = Math.ceil(staticWorldH * STATIC_SSAA);
             if (staticCanvas.width !== W || staticCanvas.height !== H) {
                 staticCanvas.width = W;
                 staticCanvas.height = H;
@@ -2158,8 +2125,9 @@
             const g = staticCtx;
             g.setTransform(1, 0, 0, 1, 0, 0);
             g.clearRect(0, 0, W, H);
+            g.setTransform(STATIC_SSAA, 0, 0, STATIC_SSAA, 0, 0);
 
-            // 1. Фон сітки (тонкі лінії)
+            // 1. Фон-сітка
             g.strokeStyle = '#1b263b';
             g.lineWidth = 1.5;
             for (let r = 0; r < GRID_ROWS; r++) {
@@ -2186,7 +2154,7 @@
                 }
             }
 
-            // 3. Території
+            // 3. Території (заливка гексів)
             for (const key in hexWorldData) {
                 const h = hexWorldData[key];
                 if (!h || h.type === 'chasm') continue;
@@ -2235,20 +2203,41 @@
                     g.stroke();
                 }
             }
-
-            // 4. Будівлі (іконки)
-            for (const key in hexWorldData) {
-                const h = hexWorldData[key];
-                if (!h) continue;
-                const parts = key.split('_');
-                const r = parseInt(parts[0]), c = parseInt(parts[1]);
-                const { x, y } = hexToPixel(r, c);
-                drawBuildingInto(g, h, x, y);
-            }
+            // БЕЗ будівель — вони в динамічному шарі!
         }
 
         // =====================================================================
-        // БУДІВЛІ — Canvas-версії SVG-функцій
+        // CULLING: видимий діапазон гексів (для великих карт)
+        // =====================================================================
+        function getVisibleHexRange() {
+            const invScale = 1 / scale;
+            const worldLeft = -panX * invScale;
+            const worldTop = -panY * invScale;
+            const worldRight = (viewW - panX) * invScale;
+            const worldBottom = (viewH - panY) * invScale;
+
+            const hexW = HEX_RADIUS * Math.sqrt(3);
+            const hexH = HEX_RADIUS * 1.5;
+            const pad = 2;
+
+            const minC = Math.max(0, Math.floor(worldLeft / hexW) - pad);
+            const maxC = Math.min(GRID_COLS - 1, Math.ceil(worldRight / hexW) + pad);
+            const minR = Math.max(0, Math.floor(worldTop / hexH) - pad);
+            const maxR = Math.min(GRID_ROWS - 1, Math.ceil(worldBottom / hexH) + pad);
+
+            return { minR, maxR, minC, maxC };
+        }
+
+        // =====================================================================
+        // МІНІ-ХЕЛПЕР для gradient (якщо треба)
+        // =====================================================================
+        function makeLinearGradient(g, x0, y0, x1, y1, stops) {
+            const grad = g.createLinearGradient(x0, y0, x1, y1);
+            for (const s of stops) grad.addColorStop(s[0], s[1]);
+            return grad;
+        }
+                // =====================================================================
+        // БУДІВЛІ — Canvas-версії з градієнтами та об'ємом
         // =====================================================================
         function drawBuildingInto(g, hexData, cx, cy) {
             const type = hexData.type;
@@ -2264,45 +2253,76 @@
         function drawTownHall(g, cx, cy, teamColor, level) {
             g.save();
 
-            // тінь
+            // Тінь
             g.fillStyle = 'rgba(0,0,0,0.45)';
             g.beginPath();
-            g.ellipse(cx, cy + 14, 22, 6, 0, 0, Math.PI * 2);
+            g.ellipse(cx, cy + 14, 24, 6, 0, 0, Math.PI * 2);
             g.fill();
 
-            // основа
-            g.fillStyle = '#475569';
+            // Основа (градієнт)
+            const baseGrad = makeLinearGradient(g, cx - 18, cy + 14, cx + 18, cy - 4, [
+                [0, '#64748b'],
+                [1, '#334155']
+            ]);
+            g.fillStyle = baseGrad;
             g.strokeStyle = '#1e293b';
-            g.lineWidth = 1.5;
+            g.lineWidth = 1.8;
             g.beginPath();
             g.rect(cx - 18, cy - 4, 36, 18);
             g.fill();
             g.stroke();
 
-            // вікна основи
-            g.fillStyle = '#334155';
-            for (let i = 0; i < 6; i++) {
-                g.fillRect(cx - 16 + (i * 6) % 30, cy + 1 + Math.floor(i / 5) * 5, 4, 3);
+            // Камені основи
+            g.strokeStyle = 'rgba(30, 41, 59, 0.7)';
+            g.lineWidth = 0.8;
+            for (let i = 1; i < 4; i++) {
+                g.beginPath();
+                g.moveTo(cx - 18 + i * 9, cy - 4);
+                g.lineTo(cx - 18 + i * 9, cy + 14);
+                g.stroke();
+            }
+            g.beginPath();
+            g.moveTo(cx - 18, cy + 5);
+            g.lineTo(cx + 18, cy + 5);
+            g.stroke();
+
+            // Вікна основи (світляні)
+            g.fillStyle = '#fbbf24';
+            for (let i = 0; i < 3; i++) {
+                g.beginPath();
+                g.rect(cx - 15 + i * 10, cy + 8, 4, 3);
+                g.fill();
             }
 
-            // центральна вежа
-            g.fillStyle = '#64748b';
+            // Центральна вежа (градієнт)
+            const towerGrad = makeLinearGradient(g, cx - 8, cy - 16, cx + 8, cy - 2, [
+                [0, '#94a3b8'],
+                [1, '#475569']
+            ]);
+            g.fillStyle = towerGrad;
+            g.strokeStyle = '#1e293b';
+            g.lineWidth = 1.8;
             g.beginPath();
             g.rect(cx - 8, cy - 16, 16, 14);
             g.fill();
             g.stroke();
 
-            // зубці
+            // Зубці вежі
+            g.fillStyle = '#94a3b8';
             for (let i = 0; i < 4; i++) {
-                g.fillStyle = '#64748b';
                 g.beginPath();
                 g.rect(cx - 8 + i * 4.5, cy - 19, 2.5, 3);
                 g.fill();
+                g.strokeStyle = '#1e293b';
                 g.stroke();
             }
 
-            // бічні вежі
-            g.fillStyle = '#64748b';
+            // Бічні вежі
+            const sideGrad = makeLinearGradient(g, cx - 20, cy - 10, cx - 10, cy, [
+                [0, '#94a3b8'],
+                [1, '#475569']
+            ]);
+            g.fillStyle = sideGrad;
             g.beginPath();
             g.rect(cx - 20, cy - 10, 10, 10);
             g.fill();
@@ -2312,7 +2332,7 @@
             g.fill();
             g.stroke();
 
-            // зубці бічних веж
+            // Зубці бічних веж
             for (let i = 0; i < 3; i++) {
                 g.beginPath();
                 g.rect(cx - 20 + i * 3.5, cy - 13, 2, 3);
@@ -2324,10 +2344,10 @@
                 g.stroke();
             }
 
-            // двері
+            // Двері (темні, склепіння)
             g.fillStyle = '#1e293b';
             g.strokeStyle = '#0f172a';
-            g.lineWidth = 1;
+            g.lineWidth = 1.2;
             g.beginPath();
             g.moveTo(cx - 5, cy + 14);
             g.lineTo(cx - 5, cy + 4);
@@ -2337,47 +2357,62 @@
             g.fill();
             g.stroke();
 
-            // вікна-ліхтарі
+            // Ручка дверей
             g.fillStyle = '#fbbf24';
+            g.beginPath();
+            g.arc(cx + 3, cy + 8, 0.8, 0, Math.PI * 2);
+            g.fill();
+
+            // Ліхтарі
+            g.fillStyle = '#fbbf24';
+            g.shadowColor = '#fbbf24';
+            g.shadowBlur = 4;
             g.beginPath();
             g.arc(cx - 14, cy - 5, 1.5, 0, Math.PI * 2);
             g.fill();
             g.beginPath();
             g.arc(cx + 14, cy - 5, 1.5, 0, Math.PI * 2);
             g.fill();
+            g.shadowBlur = 0;
 
-            // флагшток
+            // Флагшток
             g.strokeStyle = '#94a3b8';
-            g.lineWidth = 1.5;
+            g.lineWidth = 1.8;
             g.beginPath();
             g.moveTo(cx, cy - 19);
-            g.lineTo(cx, cy - 30);
+            g.lineTo(cx, cy - 32);
             g.stroke();
 
-            // прапор
+            // Прапор
             g.fillStyle = teamColor;
-            g.strokeStyle = 'rgba(0,0,0,0.4)';
+            g.strokeStyle = 'rgba(0,0,0,0.5)';
             g.lineWidth = 0.8;
             g.beginPath();
-            g.moveTo(cx, cy - 30);
-            g.lineTo(cx + 11, cy - 28);
-            g.lineTo(cx, cy - 23);
+            g.moveTo(cx, cy - 32);
+            g.lineTo(cx + 12, cy - 30);
+            g.lineTo(cx, cy - 24);
             g.closePath();
             g.fill();
             g.stroke();
 
-            // зірочка на прапорі
-            g.fillStyle = 'rgba(255,255,255,0.85)';
+            // Зірочка на прапорі
+            g.fillStyle = 'rgba(255,255,255,0.9)';
             g.beginPath();
-            g.arc(cx + 5, cy - 27.5, 1.2, 0, Math.PI * 2);
+            g.arc(cx + 5, cy - 29.5, 1.3, 0, Math.PI * 2);
             g.fill();
 
-            // корона для рівня 2+
+            // Корона (рівень 2+)
             if (level >= 2) {
-                g.font = '9px sans-serif';
+                g.font = 'bold 10px sans-serif';
                 g.textAlign = 'center';
+                g.textBaseline = 'middle';
                 g.fillStyle = '#fbbf24';
-                g.fillText('👑', cx + 14, cy - 22);
+                g.fillText('👑', cx + 15, cy - 22);
+            }
+            if (level >= 3) {
+                g.font = 'bold 9px sans-serif';
+                g.fillStyle = '#fbbf24';
+                g.fillText('⭐', cx + 15, cy - 32);
             }
 
             g.restore();
@@ -2387,23 +2422,27 @@
         function drawFarm(g, cx, cy) {
             g.save();
 
-            // тінь
+            // Тінь
             g.fillStyle = 'rgba(0,0,0,0.4)';
             g.beginPath();
-            g.ellipse(cx, cy + 12, 20, 5, 0, 0, Math.PI * 2);
+            g.ellipse(cx, cy + 12, 22, 5, 0, 0, Math.PI * 2);
             g.fill();
 
-            // комора
-            g.fillStyle = '#a16207';
+            // Комора (праворуч)
+            const barnGrad = makeLinearGradient(g, cx + 4, cy - 2, cx + 18, cy + 10, [
+                [0, '#a16207'],
+                [1, '#78350f']
+            ]);
+            g.fillStyle = barnGrad;
             g.strokeStyle = '#78350f';
-            g.lineWidth = 1;
+            g.lineWidth = 1.2;
             g.beginPath();
             g.rect(cx + 4, cy - 2, 14, 12);
             g.fill();
             g.stroke();
 
-            // дошки комори
-            g.strokeStyle = '#78350f';
+            // Дошки комори
+            g.strokeStyle = '#451a03';
             g.lineWidth = 0.7;
             for (let i = 0; i < 4; i++) {
                 g.beginPath();
@@ -2412,30 +2451,38 @@
                 g.stroke();
             }
 
-            // солома
+            // Солома зверху
             g.strokeStyle = '#fbbf24';
-            g.lineWidth = 1.5;
+            g.lineWidth = 1.8;
             g.lineCap = 'round';
             for (let i = 0; i < 3; i++) {
                 g.beginPath();
                 g.moveTo(cx + 8 + i * 3, cy - 2);
-                g.lineTo(cx + 8 + i * 3, cy - 7);
+                g.lineTo(cx + 8 + i * 3, cy - 8);
                 g.stroke();
             }
 
-            // головна будівля
-            g.fillStyle = '#eab308';
+            // Головна будівля (градієнт)
+            const houseGrad = makeLinearGradient(g, cx - 14, cy - 4, cx + 4, cy + 10, [
+                [0, '#fcd34d'],
+                [1, '#b45309']
+            ]);
+            g.fillStyle = houseGrad;
             g.strokeStyle = '#78350f';
-            g.lineWidth = 1.5;
+            g.lineWidth = 1.8;
             g.beginPath();
             g.rect(cx - 14, cy - 4, 18, 14);
             g.fill();
             g.stroke();
 
-            // дах
-            g.fillStyle = '#dc2626';
+            // Дах (градієнт)
+            const roofGrad = makeLinearGradient(g, cx - 16, cy - 15, cx + 6, cy - 4, [
+                [0, '#ef4444'],
+                [1, '#7f1d1d']
+            ]);
+            g.fillStyle = roofGrad;
             g.strokeStyle = '#7f1d1d';
-            g.lineWidth = 1.5;
+            g.lineWidth = 1.8;
             g.lineJoin = 'round';
             g.beginPath();
             g.moveTo(cx - 16, cy - 4);
@@ -2445,19 +2492,17 @@
             g.fill();
             g.stroke();
 
-            // смужки на даху
-            g.strokeStyle = '#7f1d1d';
+            // Смужки даху
+            g.strokeStyle = 'rgba(127, 29, 29, 0.6)';
             g.lineWidth = 0.6;
-            g.globalAlpha = 0.6;
-            for (let i = 0; i < 3; i++) {
+            for (let i = 0; i < 4; i++) {
                 g.beginPath();
-                g.moveTo(cx - 13 + i * 3, cy - 5);
-                g.lineTo(cx - 8 + i * 3, cy - 12);
+                g.moveTo(cx - 14 + i * 3, cy - 5);
+                g.lineTo(cx - 9 + i * 3, cy - 12);
                 g.stroke();
             }
-            g.globalAlpha = 1;
 
-            // двері
+            // Двері
             g.fillStyle = '#78350f';
             g.strokeStyle = '#451a03';
             g.lineWidth = 1;
@@ -2466,7 +2511,7 @@
             g.fill();
             g.stroke();
 
-            // вікно
+            // Вікно
             g.fillStyle = '#fbbf24';
             g.strokeStyle = '#78350f';
             g.lineWidth = 0.8;
@@ -2475,14 +2520,18 @@
             g.fill();
             g.stroke();
 
-            // стовп з сіном
+            // Стовп з сіном
             g.fillStyle = '#78350f';
-            g.fillRect(cx - 19, cy + 4, 2.5, 7);
+            g.fillRect(cx - 19, cy + 4, 2.5, 8);
 
-            // копиця сіна
-            g.fillStyle = '#16a34a';
+            // Копиця сіна (градієнт)
+            const hayGrad = makeLinearGradient(g, cx - 20, cy - 3, cx - 15, cy + 7, [
+                [0, '#4ade80'],
+                [1, '#166534']
+            ]);
+            g.fillStyle = hayGrad;
             g.strokeStyle = '#14532d';
-            g.lineWidth = 1;
+            g.lineWidth = 1.2;
             g.beginPath();
             g.arc(cx - 17.5, cy + 2, 5, 0, Math.PI * 2);
             g.fill();
@@ -2493,23 +2542,37 @@
             g.arc(cx - 20, cy, 3.5, 0, Math.PI * 2);
             g.fill();
 
+            // Соломинки
+            g.strokeStyle = '#fbbf24';
+            g.lineWidth = 0.7;
+            for (let i = 0; i < 3; i++) {
+                g.beginPath();
+                g.moveTo(cx - 18 + i * 1.5, cy - 1);
+                g.lineTo(cx - 16 + i * 1.5, cy + 5);
+                g.stroke();
+            }
+
             g.restore();
         }
 
-        // ===== ВІТРЯК =====
+        // ===== ВІТРЯК (з анімованими лопатями) =====
         function drawMill(g, cx, cy) {
             g.save();
 
-            // тінь
+            // Тінь
             g.fillStyle = 'rgba(0,0,0,0.4)';
             g.beginPath();
-            g.ellipse(cx, cy + 14, 15, 5, 0, 0, Math.PI * 2);
+            g.ellipse(cx, cy + 14, 16, 5, 0, 0, Math.PI * 2);
             g.fill();
 
-            // корпус
-            g.fillStyle = '#f5f5f4';
+            // Корпус (градієнт)
+            const bodyGrad = makeLinearGradient(g, cx - 9, cy + 12, cx + 9, cy - 4, [
+                [0, '#e7e5e4'],
+                [1, '#a8a29e']
+            ]);
+            g.fillStyle = bodyGrad;
             g.strokeStyle = '#78350f';
-            g.lineWidth = 1.5;
+            g.lineWidth = 1.8;
             g.lineJoin = 'round';
             g.beginPath();
             g.moveTo(cx - 9, cy + 12);
@@ -2520,8 +2583,12 @@
             g.fill();
             g.stroke();
 
-            // дах
-            g.fillStyle = '#dc2626';
+            // Дах (градієнт)
+            const roofGrad = makeLinearGradient(g, cx - 8, cy - 12, cx + 8, cy - 4, [
+                [0, '#ef4444'],
+                [1, '#7f1d1d']
+            ]);
+            g.fillStyle = roofGrad;
             g.strokeStyle = '#7f1d1d';
             g.beginPath();
             g.moveTo(cx - 8, cy - 4);
@@ -2531,7 +2598,7 @@
             g.fill();
             g.stroke();
 
-            // двері
+            // Двері
             g.fillStyle = '#78350f';
             g.strokeStyle = '#451a03';
             g.lineWidth = 1;
@@ -2540,7 +2607,7 @@
             g.fill();
             g.stroke();
 
-            // вікно
+            // Вікно
             g.fillStyle = '#fbbf24';
             g.strokeStyle = '#78350f';
             g.lineWidth = 0.8;
@@ -2549,13 +2616,13 @@
             g.fill();
             g.stroke();
 
-            // лопаті (анімовані)
+            // Лопаті — анімовані
             const angle = (performance.now() / 4000) * Math.PI * 2;
             g.translate(cx, cy - 8);
             g.rotate(angle);
             g.fillStyle = '#fef3c7';
             g.strokeStyle = '#78350f';
-            g.lineWidth = 1;
+            g.lineWidth = 1.2;
             for (let i = 0; i < 4; i++) {
                 g.save();
                 g.rotate(i * Math.PI / 2);
@@ -2563,25 +2630,26 @@
                 g.rect(-1.5, -18, 3, 18);
                 g.fill();
                 g.stroke();
-                // смужки
-                g.strokeStyle = '#78350f';
+                // Смужки на лопаті
+                g.strokeStyle = 'rgba(120, 53, 15, 0.5)';
                 g.lineWidth = 0.4;
-                g.globalAlpha = 0.5;
                 for (let j = 0; j < 4; j++) {
                     g.beginPath();
                     g.moveTo(-1.5, -16 + j * 4);
                     g.lineTo(1.5, -16 + j * 4);
                     g.stroke();
                 }
-                g.globalAlpha = 1;
+                g.strokeStyle = '#78350f';
+                g.lineWidth = 1.2;
                 g.restore();
             }
-            // центральна вісь
+            // Центральна вісь
             g.beginPath();
-            g.arc(0, 0, 2.5, 0, Math.PI * 2);
+            g.arc(0, 0, 2.8, 0, Math.PI * 2);
             g.fillStyle = '#78350f';
             g.fill();
             g.strokeStyle = '#451a03';
+            g.lineWidth = 1;
             g.stroke();
 
             g.restore();
@@ -2591,14 +2659,18 @@
         function drawBank(g, cx, cy, stored, capacity, accepting) {
             g.save();
 
-            // тінь
+            // Тінь
             g.fillStyle = 'rgba(0,0,0,0.5)';
             g.beginPath();
-            g.ellipse(cx, cy + 14, 20, 5, 0, 0, Math.PI * 2);
+            g.ellipse(cx, cy + 14, 22, 5, 0, 0, Math.PI * 2);
             g.fill();
 
-            // нижні сходинки
-            g.fillStyle = '#57534e';
+            // Нижні сходинки
+            const stepGrad = makeLinearGradient(g, cx - 20, cy + 10, cx + 20, cy + 14, [
+                [0, '#78716c'],
+                [1, '#44403c']
+            ]);
+            g.fillStyle = stepGrad;
             g.strokeStyle = '#292524';
             g.lineWidth = 1;
             g.beginPath();
@@ -2606,24 +2678,32 @@
             g.fill();
             g.stroke();
 
-            // верхні сходинки
-            g.fillStyle = '#78716c';
+            // Верхні сходинки
+            g.fillStyle = '#a8a29e';
             g.beginPath();
             g.rect(cx - 17, cy + 6, 34, 4);
             g.fill();
             g.stroke();
 
-            // фасад
-            g.fillStyle = '#d6d3d1';
+            // Фасад (градієнт)
+            const facadeGrad = makeLinearGradient(g, cx - 15, cy - 6, cx + 15, cy + 8, [
+                [0, '#f5f5f4'],
+                [1, '#a8a29e']
+            ]);
+            g.fillStyle = facadeGrad;
             g.strokeStyle = '#292524';
-            g.lineWidth = 1.5;
+            g.lineWidth = 1.8;
             g.beginPath();
             g.rect(cx - 15, cy - 6, 30, 14);
             g.fill();
             g.stroke();
 
-            // колони
-            g.fillStyle = '#e7e5e4';
+            // Колони
+            const colGrad = makeLinearGradient(g, cx - 15, cy - 4, cx + 15, cy + 6, [
+                [0, '#e7e5e4'],
+                [1, '#78716c']
+            ]);
+            g.fillStyle = colGrad;
             g.strokeStyle = '#44403c';
             g.lineWidth = 0.8;
             [-11, -3.5, 3.5, 11].forEach(off => {
@@ -2633,7 +2713,7 @@
                 g.stroke();
             });
 
-            // двері
+            // Двері
             g.fillStyle = '#44403c';
             g.strokeStyle = '#1c1917';
             g.lineWidth = 1;
@@ -2642,10 +2722,14 @@
             g.fill();
             g.stroke();
 
-            // дах
-            g.fillStyle = '#a8a29e';
+            // Дах (трикутник, градієнт)
+            const roofGrad = makeLinearGradient(g, cx - 18, cy - 18, cx + 18, cy - 6, [
+                [0, '#d6d3d1'],
+                [1, '#78716c']
+            ]);
+            g.fillStyle = roofGrad;
             g.strokeStyle = '#292524';
-            g.lineWidth = 1.5;
+            g.lineWidth = 1.8;
             g.lineJoin = 'round';
             g.beginPath();
             g.moveTo(cx - 18, cy - 6);
@@ -2655,9 +2739,9 @@
             g.fill();
             g.stroke();
 
-            // внутрішній трикутник
-            g.fillStyle = '#d6d3d1';
-            g.strokeStyle = '#57534e';
+            // Внутрішній трикутник
+            g.fillStyle = '#57534e';
+            g.strokeStyle = '#292524';
             g.lineWidth = 0.8;
             g.beginPath();
             g.moveTo(cx - 8, cy - 7);
@@ -2667,16 +2751,19 @@
             g.fill();
             g.stroke();
 
-            // золота монета на даху
-            g.fillStyle = '#fbbf24';
+            // Золота монета на даху
+            const coinGrad = g.createRadialGradient(cx, cy - 11, 0.5, cx, cy - 11, 2.5);
+            coinGrad.addColorStop(0, '#fef3c7');
+            coinGrad.addColorStop(1, '#b45309');
+            g.fillStyle = coinGrad;
             g.strokeStyle = '#78350f';
             g.lineWidth = 0.8;
             g.beginPath();
-            g.arc(cx, cy - 11, 2, 0, Math.PI * 2);
+            g.arc(cx, cy - 11, 2.2, 0, Math.PI * 2);
             g.fill();
             g.stroke();
 
-            // флагшток
+            // Флагшток
             g.strokeStyle = '#292524';
             g.lineWidth = 1.2;
             g.beginPath();
@@ -2692,11 +2779,11 @@
             g.fill();
             g.stroke();
 
-            // показник заповнення
+            // Показник заповнення
             const pct = Math.max(0, Math.min(1, stored / (capacity || 40)));
             const barW = 30, barH = 3;
             const bx = cx - barW / 2, by = cy + 15;
-            g.fillStyle = 'rgba(0,0,0,0.7)';
+            g.fillStyle = 'rgba(0,0,0,0.8)';
             g.strokeStyle = '#292524';
             g.lineWidth = 0.5;
             g.beginPath();
@@ -2704,20 +2791,24 @@
             g.fill();
             g.stroke();
 
-            g.fillStyle = pct >= 0.95 ? '#fbbf24' : (pct > 0.5 ? '#f59e0b' : '#fcd34d');
+            const fillColor = pct >= 0.95 ? '#fbbf24' : (pct > 0.5 ? '#f59e0b' : '#fcd34d');
+            g.fillStyle = fillColor;
             g.beginPath();
             g.rect(bx, by, Math.max(0.5, barW * pct), barH);
             g.fill();
 
-            // індикатор "приймає"
+            // Індикатор "приймає"
             if (accepting) {
                 g.fillStyle = '#10b981';
+                g.shadowColor = '#10b981';
+                g.shadowBlur = 4;
                 g.strokeStyle = '#065f46';
                 g.lineWidth = 0.8;
                 g.beginPath();
                 g.arc(cx + 17, cy - 12, 2.5, 0, Math.PI * 2);
                 g.fill();
                 g.stroke();
+                g.shadowBlur = 0;
             }
 
             g.restore();
@@ -2727,13 +2818,13 @@
         function drawBridge(g, cx, cy) {
             g.save();
 
-            // тінь
+            // Тінь
             g.fillStyle = 'rgba(0, 0, 0, 0.55)';
             g.beginPath();
             g.ellipse(cx, cy + 2, 18, 8, 0, 0, Math.PI * 2);
             g.fill();
 
-            // нижні балки
+            // Нижні балки
             g.strokeStyle = '#92400e';
             g.lineWidth = 3.5;
             g.lineCap = 'round';
@@ -2744,7 +2835,7 @@
             g.lineTo(cx + 16, cy + 6);
             g.stroke();
 
-            // верхні балки
+            // Верхні балки
             g.strokeStyle = '#d97706';
             g.lineWidth = 1.5;
             g.beginPath();
@@ -2754,8 +2845,13 @@
             g.lineTo(cx + 15, cy + 5);
             g.stroke();
 
-            // дошки
-            g.strokeStyle = '#a16207';
+            // Дошки (градієнт)
+            const plankGrad = makeLinearGradient(g, cx, cy - 7, cx, cy + 7, [
+                [0, '#a16207'],
+                [0.5, '#78350f'],
+                [1, '#a16207']
+            ]);
+            g.strokeStyle = plankGrad;
             g.lineWidth = 2;
             for (let dx = -12; dx <= 12; dx += 4.8) {
                 g.beginPath();
@@ -2764,9 +2860,9 @@
                 g.stroke();
             }
 
-            // поручні
+            // Поручні
             g.strokeStyle = '#fbbf24';
-            g.lineWidth = 1;
+            g.lineWidth = 1.2;
             g.beginPath();
             g.moveTo(cx - 15, cy - 10);
             g.lineTo(cx + 15, cy - 10);
@@ -2774,7 +2870,7 @@
             g.lineTo(cx + 15, cy + 10);
             g.stroke();
 
-            // стовпчики поручнів
+            // Стовпчики
             g.lineWidth = 1;
             for (let dx = -12; dx <= 12; dx += 8) {
                 g.beginPath();
@@ -2794,16 +2890,20 @@
         function drawBarbarianCamp(g, cx, cy) {
             g.save();
 
-            // тінь
+            // Тінь
             g.fillStyle = 'rgba(0,0,0,0.5)';
             g.beginPath();
             g.ellipse(cx, cy + 8, 15, 4, 0, 0, Math.PI * 2);
             g.fill();
 
-            // намет
-            g.fillStyle = '#f59e0b';
+            // Намет (градієнт)
+            const tentGrad = makeLinearGradient(g, cx - 16, cy - 12, cx + 8, cy + 6, [
+                [0, '#fbbf24'],
+                [1, '#b45309']
+            ]);
+            g.fillStyle = tentGrad;
             g.strokeStyle = '#451a03';
-            g.lineWidth = 1.5;
+            g.lineWidth = 1.8;
             g.lineJoin = 'round';
             g.beginPath();
             g.moveTo(cx - 4, cy - 12);
@@ -2813,7 +2913,17 @@
             g.fill();
             g.stroke();
 
-            // вхід
+            // Смуги на наметі
+            g.strokeStyle = 'rgba(69, 26, 3, 0.4)';
+            g.lineWidth = 0.7;
+            for (let i = 0; i < 3; i++) {
+                g.beginPath();
+                g.moveTo(cx - 4 + i * 3, cy - 12);
+                g.lineTo(cx - 14 + i * 5, cy + 6);
+                g.stroke();
+            }
+
+            // Вхід
             g.fillStyle = '#451a03';
             g.beginPath();
             g.moveTo(cx - 3, cy + 6);
@@ -2822,34 +2932,46 @@
             g.closePath();
             g.fill();
 
-            // флагшток
+            // Флагшток
             g.strokeStyle = '#1e293b';
-            g.lineWidth = 1;
+            g.lineWidth = 1.2;
             g.beginPath();
             g.moveTo(cx - 4, cy - 12);
-            g.lineTo(cx - 4, cy - 20);
+            g.lineTo(cx - 4, cy - 22);
             g.stroke();
 
-            // прапор
+            // Прапор
             g.fillStyle = '#d97706';
             g.strokeStyle = '#451a03';
             g.lineWidth = 0.8;
             g.beginPath();
-            g.moveTo(cx - 4, cy - 20);
-            g.lineTo(cx + 3, cy - 18);
-            g.lineTo(cx - 4, cy - 15);
+            g.moveTo(cx - 4, cy - 22);
+            g.lineTo(cx + 4, cy - 20);
+            g.lineTo(cx - 4, cy - 16);
             g.closePath();
             g.fill();
             g.stroke();
 
-            // багаття
+            // Череп на прапорі
+            g.fillStyle = '#f8fafc';
+            g.beginPath();
+            g.arc(cx - 1, cy - 19.5, 1.2, 0, Math.PI * 2);
+            g.fill();
+
+            // Багаття
             const fx = cx + 10, fy = cy + 4;
             g.fillStyle = '#1c1917';
             g.beginPath();
             g.ellipse(fx, fy + 2, 4, 1.5, 0, 0, Math.PI * 2);
             g.fill();
 
-            g.fillStyle = '#f97316';
+            // Полум'я з градієнтом
+            const fireGrad = g.createRadialGradient(fx, fy - 1, 0.5, fx, fy - 1, 5);
+            fireGrad.addColorStop(0, '#fef3c7');
+            fireGrad.addColorStop(0.4, '#fbbf24');
+            fireGrad.addColorStop(0.7, '#f97316');
+            fireGrad.addColorStop(1, '#dc2626');
+            g.fillStyle = fireGrad;
             g.beginPath();
             g.moveTo(fx - 3, fy + 2);
             g.lineTo(fx - 1, fy - 3);
@@ -2858,21 +2980,43 @@
             g.closePath();
             g.fill();
 
+            // Іскри
             g.fillStyle = '#fbbf24';
-            g.beginPath();
-            g.moveTo(fx - 1.5, fy + 2);
-            g.lineTo(fx, fy - 2);
-            g.lineTo(fx + 1.5, fy + 2);
-            g.closePath();
-            g.fill();
+            g.shadowColor = '#fbbf24';
+            g.shadowBlur = 3;
+            const t = performance.now() / 200;
+            for (let i = 0; i < 3; i++) {
+                const py = fy - 3 - Math.abs(Math.sin(t + i * 1.5)) * 6;
+                const px = fx + Math.sin(t * 0.7 + i * 2) * 2;
+                g.beginPath();
+                g.arc(px, py, 0.6, 0, Math.PI * 2);
+                g.fill();
+            }
+            g.shadowBlur = 0;
 
             g.restore();
         }
                 // =====================================================================
-        // ДИНАМІЧНИЙ ШАР: юніти, ефекти, hover, маршрути
+        // ДИНАМІЧНИЙ ШАР: будівлі + юніти + ефекти + hover + маршрути
         // =====================================================================
         function drawDynamicLayer(g) {
-            // 1. Hover-підсвітка
+            const vr = getVisibleHexRange();
+
+            // 1. БУДІВЛІ (тепер динамічно — чітко!)
+            if (scale >= LOD_ZOOM_THRESHOLD) {
+                for (let r = vr.minR; r <= vr.maxR; r++) {
+                    for (let c = vr.minC; c <= vr.maxC; c++) {
+                        const key = `${r}_${c}`;
+                        const h = hexWorldData[key];
+                        if (!h || h.type === 'chasm') continue;
+                        if (!h.owner && h.type !== 'barbarian_camp') continue;
+                        const { x, y } = hexToPixel(r, c);
+                        drawBuildingInto(g, h, x, y);
+                    }
+                }
+            }
+
+            // 2. Hover-підсвітка
             if (hoveredHex) {
                 const { x, y } = hexToPixel(hoveredHex.r, hoveredHex.c);
                 pathHex(g, x, y, HEX_RADIUS);
@@ -2881,15 +3025,15 @@
                 g.stroke();
             }
 
-            // 2. ZOC-підсвітка
+            // 3. ZOC-підсвітка
             const needZoc = showAllEnemyZOC ||
                 (activeSelection && activeSelection.layer === 'unit' && activeSelection.unitKind === 'military');
-            if (needZoc) {
+            if (needZoc && scale >= LOD_ZOOM_THRESHOLD) {
                 g.strokeStyle = '#ef4444';
                 g.lineWidth = 2 / scale;
                 g.setLineDash([4 / scale, 2 / scale]);
-                for (let r = 0; r < GRID_ROWS; r++) {
-                    for (let c = 0; c < GRID_COLS; c++) {
+                for (let r = vr.minR; r <= vr.maxR; r++) {
+                    for (let c = vr.minC; c <= vr.maxC; c++) {
                         if (!isHexInEnemyZOC(r, c)) continue;
                         const { x, y } = hexToPixel(r, c);
                         pathHex(g, x, y, HEX_RADIUS);
@@ -2899,7 +3043,7 @@
                 g.setLineDash([]);
             }
 
-            // 3. Підсвітка вибраного юніта
+            // 4. Підсвітка вибраного юніта
             if (activeSelection && activeSelection.layer === 'unit' && activeSelection.key) {
                 const parts = activeSelection.key.split('_');
                 const r = parseInt(parts[0]), c = parseInt(parts[1]);
@@ -2910,28 +3054,33 @@
                 g.stroke();
             }
 
-            // 4. Юніти
-            for (const key in hexWorldData) {
-                const h = hexWorldData[key];
-                if (!h || !h.units) continue;
-                const parts = key.split('_');
-                const r = parseInt(parts[0]), c = parseInt(parts[1]);
-                const { x, y } = hexToPixel(r, c);
-                const big = !h.owner || h.type === 'starter' || h.type === 'purchased';
-                if (h.units.military) drawMilitary(g, x, y, h.units.military, key, h, big);
-                if (h.units.civilian) drawCivilian(g, x, y, h.units.civilian, key, h, big);
+            // 5. ЮНІТИ
+            if (scale >= LOD_ZOOM_THRESHOLD) {
+                for (let r = vr.minR; r <= vr.maxR; r++) {
+                    for (let c = vr.minC; c <= vr.maxC; c++) {
+                        const key = `${r}_${c}`;
+                        const h = hexWorldData[key];
+                        if (!h || !h.units) continue;
+                        const { x, y } = hexToPixel(r, c);
+                        const big = !h.owner || h.type === 'starter' || h.type === 'purchased';
+                        if (h.units.military) drawMilitary(g, x, y, h.units.military, key, h, big);
+                        if (h.units.civilian) drawCivilian(g, x, y, h.units.civilian, key, h, big);
+                    }
+                }
             }
 
-            // 5. HP-бари бою
+            // 6. HP-бари бою
             drawBattleHPBars(g);
 
-            // 6. Точки маршруту активного юніта
+            // 7. Маршрут активного юніта
             if (activeSelection && activeSelection.layer === 'unit') {
                 drawActiveRoute(g);
             }
 
-            // 7. Мітка власника над ратушами
-            drawCoreLabels(g);
+            // 8. Мітки ратуш
+            if (scale >= LOD_ZOOM_THRESHOLD) {
+                drawCoreLabels(g);
+            }
         }
 
         // ===== ВОЇН =====
@@ -2948,12 +3097,13 @@
             const isFighting = unit.state === 'fighting';
             const isSelected = activeSelection && activeSelection.layer === 'unit' &&
                 activeSelection.key === key && activeSelection.unitKind === 'military';
+            const t = performance.now();
 
             g.save();
 
-            // Зовнішнє кільце для idle
+            // Зовнішнє кільце для idle (пульс)
             if (isIdle && !isBarb) {
-                const pulse = 0.4 + 0.3 * Math.sin(performance.now() / 500);
+                const pulse = 0.4 + 0.3 * Math.sin(t / 500);
                 g.globalAlpha = pulse;
                 g.strokeStyle = color;
                 g.lineWidth = 1.5;
@@ -2963,8 +3113,11 @@
                 g.globalAlpha = 1;
             }
 
-            // Основний круг
-            g.fillStyle = color;
+            // Основний круг з градієнтом
+            const circleGrad = g.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
+            circleGrad.addColorStop(0, lightenColor(color, 1.3));
+            circleGrad.addColorStop(1, color);
+            g.fillStyle = circleGrad;
             g.strokeStyle = darkenColor(color, 0.55);
             g.lineWidth = 2.5;
             g.beginPath();
@@ -2972,15 +3125,19 @@
             g.fill();
             g.stroke();
 
-            // Пунктир для руху
+            // Пунктир для руху (обертається)
             if (isMoving) {
+                g.save();
+                g.translate(x, y);
+                g.rotate(t / 1000);
                 g.setLineDash([4, 3]);
                 g.strokeStyle = color;
                 g.lineWidth = 1.5;
                 g.beginPath();
-                g.arc(x, y, r + 2, 0, Math.PI * 2);
+                g.arc(0, 0, r + 2, 0, Math.PI * 2);
                 g.stroke();
                 g.setLineDash([]);
+                g.restore();
             }
 
             // Булава
@@ -2988,9 +3145,14 @@
             g.save();
             g.translate(x, y);
             g.rotate(-Math.PI / 4);
-            g.fillStyle = '#8b4513';
-            g.strokeStyle = '#4a2008';
-            g.lineWidth = 0.6;
+
+            const clubGrad = makeLinearGradient(g, -4 * k, -22 * k, 4 * k, 16 * k, [
+                [0, '#a0522d'],
+                [1, '#5c2e0e']
+            ]);
+            g.fillStyle = clubGrad;
+            g.strokeStyle = '#2a1205';
+            g.lineWidth = 0.8;
             g.beginPath();
             g.moveTo(-3 * k, 16 * k);
             g.quadraticCurveTo(-4 * k, 8 * k, -2 * k, 0);
@@ -3004,8 +3166,8 @@
             g.fill();
             g.stroke();
 
-            // Шипи на булаві
-            g.fillStyle = '#6b3410';
+            // Шипи
+            g.fillStyle = '#8b6b4a';
             g.beginPath();
             g.arc(-3 * k, -16 * k, 1.2 * k, 0, Math.PI * 2);
             g.fill();
@@ -3022,7 +3184,7 @@
             const pct = Math.max(0, Math.min(1, (unit.hp || 0) / maxHp));
             const barW = 18 * k, barH = 3 * k;
             const bx = x - barW / 2, by = y + 13 * k;
-            g.fillStyle = '#475569';
+            g.fillStyle = 'rgba(15, 23, 42, 0.9)';
             g.beginPath();
             g.rect(bx, by, barW, barH);
             g.fill();
@@ -3033,13 +3195,17 @@
 
             // Кільце бою
             if (isFighting) {
+                g.save();
+                g.translate(x, y);
+                g.rotate(-t / 800);
                 g.strokeStyle = '#ef4444';
                 g.lineWidth = 1.5 * k;
                 g.setLineDash([3 * k, 3 * k]);
                 g.beginPath();
-                g.arc(x, y, r * 1.15, 0, Math.PI * 2);
+                g.arc(0, 0, r * 1.15, 0, Math.PI * 2);
                 g.stroke();
                 g.setLineDash([]);
+                g.restore();
             }
 
             // Вибраний
@@ -3051,7 +3217,7 @@
                 g.stroke();
             }
 
-            // Тултіп при hover
+            // Тултіп
             if (hoveredHex && `${hoveredHex.r}_${hoveredHex.c}` === key && !isBarb && unit.owner) {
                 drawTooltip(g, x, y - 34, unit.owner, color);
             }
@@ -3070,11 +3236,15 @@
             const isMoving = unit.state === 'moving';
             const isSelected = activeSelection && activeSelection.layer === 'unit' &&
                 activeSelection.key === key && activeSelection.unitKind === 'civilian';
+            const t = performance.now();
 
             g.save();
 
-            // Основний круг
-            g.fillStyle = color;
+            // Основний круг з градієнтом
+            const circleGrad = g.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
+            circleGrad.addColorStop(0, lightenColor(color, 1.3));
+            circleGrad.addColorStop(1, color);
+            g.fillStyle = circleGrad;
             g.strokeStyle = darkenColor(color, 0.55);
             g.lineWidth = 2.5;
             g.beginPath();
@@ -3084,20 +3254,30 @@
 
             // Пунктир для руху
             if (isMoving) {
+                g.save();
+                g.translate(x, y);
+                g.rotate(t / 1000);
                 g.setLineDash([4, 3]);
                 g.strokeStyle = color;
                 g.lineWidth = 1.5;
                 g.beginPath();
-                g.arc(x, y, r + 2, 0, Math.PI * 2);
+                g.arc(0, 0, r + 2, 0, Math.PI * 2);
                 g.stroke();
                 g.setLineDash([]);
+                g.restore();
             }
 
-            // Сувій (спрощено)
+            // Сувій
             const k = r / 15;
             g.save();
             g.translate(x, y);
-            g.fillStyle = '#fef3c7';
+
+            // Папір (градієнт)
+            const paperGrad = makeLinearGradient(g, -5 * k, -7 * k, 5 * k, 7 * k, [
+                [0, '#fef9c3'],
+                [1, '#fde68a']
+            ]);
+            g.fillStyle = paperGrad;
             g.strokeStyle = '#78350f';
             g.lineWidth = 0.8;
             g.beginPath();
@@ -3105,7 +3285,7 @@
             g.fill();
             g.stroke();
 
-            // Валики сувою
+            // Валики
             g.fillStyle = '#e7e5e4';
             g.strokeStyle = '#78350f';
             g.lineWidth = 0.6;
@@ -3146,6 +3326,20 @@
             g.restore();
         }
 
+        // ===== ЛЕГКЕ ОСВІТЛЕННЯ КОЛЬОРУ =====
+        function lightenColor(hex, factor = 1.3) {
+            if (!hex || typeof hex !== 'string') return '#60a5fa';
+            let h = hex.replace('#', '');
+            if (h.length === 3) h = h.split('').map(c => c + c).join('');
+            if (h.length !== 6) return '#60a5fa';
+            const num = parseInt(h, 16);
+            if (isNaN(num)) return '#60a5fa';
+            const r = Math.min(255, Math.round(((num >> 16) & 255) * factor));
+            const g = Math.min(255, Math.round(((num >> 8) & 255) * factor));
+            const b = Math.min(255, Math.round((num & 255) * factor));
+            return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+        }
+
         // ===== ТУЛТІП =====
         function drawTooltip(g, cx, cy, text, color) {
             const padding = 6;
@@ -3160,7 +3354,8 @@
             g.strokeStyle = color || '#38bdf8';
             g.lineWidth = 1;
             g.beginPath();
-            g.roundRect ? g.roundRect(bx, by, boxW, boxH, 4) : g.rect(bx, by, boxW, boxH);
+            if (g.roundRect) g.roundRect(bx, by, boxW, boxH, 4);
+            else g.rect(bx, by, boxW, boxH);
             g.fill();
             g.stroke();
 
@@ -3212,30 +3407,28 @@
 
             g.save();
 
-            // Підпис
             g.font = 'bold 10px sans-serif';
             g.fillStyle = '#f8fafc';
             g.textAlign = 'center';
             g.textBaseline = 'middle';
             g.fillText(label, cx, by - 8);
 
-            // Фон
             g.fillStyle = 'rgba(15, 23, 42, 0.9)';
             g.strokeStyle = '#0f172a';
             g.lineWidth = 1;
             g.beginPath();
-            g.roundRect ? g.roundRect(bx, by, barW, barH, barH / 2) : g.rect(bx, by, barW, barH);
+            if (g.roundRect) g.roundRect(bx, by, barW, barH, barH / 2);
+            else g.rect(bx, by, barW, barH);
             g.fill();
             g.stroke();
 
-            // Заповнення
             const pctColor = pct > 0.5 ? color : (pct > 0.25 ? '#f59e0b' : '#ef4444');
             g.fillStyle = pctColor;
             g.beginPath();
-            g.roundRect ? g.roundRect(bx + 1, by + 1, Math.max(0, (barW - 2) * pct), barH - 2, (barH - 2) / 2) : g.rect(bx + 1, by + 1, Math.max(0, (barW - 2) * pct), barH - 2);
+            if (g.roundRect) g.roundRect(bx + 1, by + 1, Math.max(0, (barW - 2) * pct), barH - 2, (barH - 2) / 2);
+            else g.rect(bx + 1, by + 1, Math.max(0, (barW - 2) * pct), barH - 2);
             g.fill();
 
-            // Текст HP
             g.font = 'bold 8px sans-serif';
             g.fillStyle = '#f8fafc';
             g.textAlign = 'center';
@@ -3259,7 +3452,8 @@
             if (!movingUnit || !Array.isArray(movingUnit.path)) return;
 
             const currentIdx = movingUnit.pathIndex || 0;
-            const pulseR = 6 + 2 * Math.sin(performance.now() / 300);
+            const t = performance.now();
+            const pulseR = 6 + 2 * Math.sin(t / 300);
 
             g.save();
             for (let i = currentIdx; i < movingUnit.path.length; i++) {
@@ -3268,16 +3462,20 @@
                 const { x, y } = hexToPixel(r, c);
 
                 if (i === currentIdx) {
-                    // Наступний крок — пульсуючий зелений
-                    g.fillStyle = '#10b981';
+                    // Пульсуючий зелений
+                    g.fillStyle = 'rgba(16, 185, 129, 0.7)';
                     g.strokeStyle = '#ffffff';
                     g.lineWidth = 2;
+                    g.beginPath();
+                    g.arc(x, y, pulseR + 2, 0, Math.PI * 2);
+                    g.fill();
+                    g.fillStyle = '#10b981';
                     g.beginPath();
                     g.arc(x, y, pulseR, 0, Math.PI * 2);
                     g.fill();
                     g.stroke();
                 } else {
-                    // Далі — сині
+                    // Сині крапки
                     g.fillStyle = 'rgba(56, 189, 248, 0.8)';
                     g.strokeStyle = '#ffffff';
                     g.lineWidth = 1.5;
@@ -3313,22 +3511,20 @@
                 const labelY = center.y - 40;
                 const bgH = 28;
 
-                // Фон
                 g.fillStyle = 'rgba(15, 23, 42, 0.85)';
                 g.strokeStyle = damaged ? '#ef4444' : 'rgba(255, 255, 255, 0.4)';
                 g.lineWidth = 1;
                 g.beginPath();
-                g.roundRect ? g.roundRect(center.x - approxW / 2, labelY - 10, approxW, bgH, 6) : g.rect(center.x - approxW / 2, labelY - 10, approxW, bgH);
+                if (g.roundRect) g.roundRect(center.x - approxW / 2, labelY - 10, approxW, bgH, 6);
+                else g.rect(center.x - approxW / 2, labelY - 10, approxW, bgH);
                 g.fill();
                 g.stroke();
 
-                // Текст
                 g.fillStyle = damaged ? '#f87171' : '#f8fafc';
                 g.textAlign = 'center';
                 g.textBaseline = 'middle';
                 g.fillText(text, center.x, labelY - 2);
 
-                // HP-бар
                 const barW = approxW - 12, barH = 6;
                 const barX = center.x - barW / 2, barY = labelY + 8;
 
@@ -3336,7 +3532,8 @@
                 g.strokeStyle = '#0f172a';
                 g.lineWidth = 0.5;
                 g.beginPath();
-                g.roundRect ? g.roundRect(barX, barY, barW, barH, barH / 2) : g.rect(barX, barY, barW, barH);
+                if (g.roundRect) g.roundRect(barX, barY, barW, barH, barH / 2);
+                else g.rect(barX, barY, barW, barH);
                 g.fill();
                 g.stroke();
 
@@ -3344,19 +3541,47 @@
                 const pctColor = pct > 0.6 ? '#10b981' : (pct > 0.3 ? '#f59e0b' : '#ef4444');
                 g.fillStyle = pctColor;
                 g.beginPath();
-                g.roundRect ? g.roundRect(barX, barY, Math.max(0.5, barW * pct), barH, barH / 2) : g.rect(barX, barY, Math.max(0.5, barW * pct), barH);
+                if (g.roundRect) g.roundRect(barX, barY, Math.max(0.5, barW * pct), barH, barH / 2);
+                else g.rect(barX, barY, Math.max(0.5, barW * pct), barH);
                 g.fill();
 
-                // Відсоток
                 g.fillStyle = '#f8fafc';
                 g.font = 'bold 9px sans-serif';
+                g.textAlign = 'center';
+                g.textBaseline = 'middle';
                 g.fillText(`${hpPct}%`, center.x, barY + barH / 2 + 0.5);
             }
             g.restore();
         }
 
-        // =====================================================================
-        // КЕРУВАННЯ В'ЮПОРТОМ: pointer events, zoom, pan
+        // ===== ХЕЛПЕРИ ПОШУКУ ЮНІТІВ =====
+        function findMyMilitaryById(unitId) {
+            if (!unitId) return null;
+            for (const k in hexWorldData) {
+                const h = hexWorldData[k];
+                if (h && h.units && h.units.military && h.units.military.owner === currentUsername && h.units.military.id === unitId) {
+                    return { key: k, hex: h };
+                }
+            }
+            return null;
+        }
+
+        function findMyCivilianById(unitId) {
+            if (!unitId) return null;
+            for (const k in hexWorldData) {
+                const h = hexWorldData[k];
+                if (h && h.units && h.units.civilian && h.units.civilian.owner === currentUsername && h.units.civilian.id === unitId) {
+                    return { key: k, hex: h };
+                }
+            }
+            return null;
+        }
+
+        function isMyMilitary(hex) { return !!(hex && hex.units && hex.units.military && hex.units.military.owner === currentUsername); }
+        function isMyCivilian(hex) { return !!(hex && hex.units && hex.units.civilian && hex.units.civilian.owner === currentUsername); }
+        function isMyTerritory(hex) { return !!(hex && hex.owner === currentUsername); }
+                // =====================================================================
+        // КЕРУВАННЯ В'ЮПОРТОМ
         // =====================================================================
         function setupViewportControls() {
             const viewport = document.getElementById('hex-grid-viewport');
@@ -3401,7 +3626,6 @@
             // Pointer move
             viewport.addEventListener('pointermove', (e) => {
                 if (!activePointers.has(e.pointerId)) {
-                    // Оновлюємо hover
                     updateHover(e);
                     return;
                 }
@@ -3476,7 +3700,6 @@
             const sx = e.clientX - rect.left;
             const sy = e.clientY - rect.top;
 
-            // Екран -> world
             const wx = (sx - panX) / scale;
             const wy = (sy - panY) / scale;
 
@@ -3507,7 +3730,6 @@
             if (hex) handleHexClick(hex.r, hex.c);
         }
 
-        // ===== ZOOM-КОНТРОЛИ =====
         window.zoomIn = function() {
             const vp = document.getElementById('hex-grid-viewport');
             const cx = vp.clientWidth / 2, cy = vp.clientHeight / 2;
@@ -3539,33 +3761,7 @@
             scheduleRender();
         }
 
-        // ===== ДОПОМІЖНІ ДЛЯ ПОШУКУ ЮНІТІВ =====
-        function findMyMilitaryById(unitId) {
-            if (!unitId) return null;
-            for (const k in hexWorldData) {
-                const h = hexWorldData[k];
-                if (h && h.units && h.units.military && h.units.military.owner === currentUsername && h.units.military.id === unitId) {
-                    return { key: k, hex: h };
-                }
-            }
-            return null;
-        }
-
-        function findMyCivilianById(unitId) {
-            if (!unitId) return null;
-            for (const k in hexWorldData) {
-                const h = hexWorldData[k];
-                if (h && h.units && h.units.civilian && h.units.civilian.owner === currentUsername && h.units.civilian.id === unitId) {
-                    return { key: k, hex: h };
-                }
-            }
-            return null;
-        }
-
-        function isMyMilitary(hex) { return !!(hex && hex.units && hex.units.military && hex.units.military.owner === currentUsername); }
-        function isMyCivilian(hex) { return !!(hex && hex.units && hex.units.civilian && hex.units.civilian.owner === currentUsername); }
-        function isMyTerritory(hex) { return !!(hex && hex.owner === currentUsername); }
-                // =====================================================================
+        // =====================================================================
         // ОБРОБКА КЛІКІВ ПО ГЕКСУ
         // =====================================================================
         function handleHexClick(r, c) {
@@ -3671,14 +3867,7 @@
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });
-            if (showAllEnemyZOC) {
-                showAllEnemyZOC = false;
-                scheduleRender();
-            }
-        }
-
-        function clearZocHighlight() {
-            // ZOC тепер не в DOM — просто тригер перерендеру
+            if (showAllEnemyZOC) showAllEnemyZOC = false;
             scheduleRender();
         }
 
@@ -3699,7 +3888,9 @@
             return false;
         }
 
-        // ===== ЗАСНУВАННЯ БАЗИ =====
+        // =====================================================================
+        // ЗАСНУВАННЯ БАЗИ
+        // =====================================================================
         function openBaseModal() {
             const takenColors = new Set();
             for (const k in hexWorldData) {
@@ -3755,7 +3946,9 @@
             } catch (err) { alert('Помилка: ' + err.message); }
         }
 
-        // ===== РАТУША =====
+        // =====================================================================
+        // РАТУША (модалка)
+        // =====================================================================
         function openTownHallModal(coreHex, r, c) {
             hideAllModals();
             activeSelection = { key: `${r}_${c}`, layer: 'townhall' };
@@ -3816,8 +4009,9 @@
             activeSelection = null;
             scheduleRender();
         }
-
-        // ===== ВОРОЖА РАТУША =====
+                // =====================================================================
+        // ВОРОЖА РАТУША
+        // =====================================================================
         function openEnemyCoreModal(r, c, coreHex) {
             hideAllModals();
             activeSelection = { key: `${r}_${c}`, layer: 'enemy-core' };
@@ -3873,7 +4067,9 @@
             executeMilitaryMove(chosen.r, chosen.c, r, c, path);
         }
 
-        // ===== ВОРОЖИЙ БАНК =====
+        // =====================================================================
+        // ВОРОЖИЙ БАНК
+        // =====================================================================
         function openEnemyBankModal(r, c, bankHex) {
             hideAllModals();
             activeSelection = { key: `${r}_${c}`, layer: 'enemy-bank' };
@@ -3919,7 +4115,9 @@
             executeMilitaryMove(chosen.r, chosen.c, r, c, path);
         }
 
-        // ===== РЕМОНТ / ПРОКАЧКА / НАЙМ =====
+        // =====================================================================
+        // РЕМОНТ / ПРОКАЧКА / НАЙМ
+        // =====================================================================
         window.repairTownHall = async function() {
             let coreKey = null;
             for (const k in hexWorldData) {
@@ -3996,7 +4194,9 @@
             } catch (err) { alert(err.message); }
         }
 
-        // ===== НАЙМ ГІНЦЯ =====
+        // =====================================================================
+        // ГІНЕЦЬ (найм / редагування)
+        // =====================================================================
         window.openRecruitMessengerModal = function() {
             if (userGold < MESSENGER_COST) { alert(`Потрібно ${MESSENGER_COST} золота.`); return; }
             let coreKey = null, coreHex = null;
@@ -4041,10 +4241,7 @@
             if (!coreKey || !coreHex) { alert("Ратушу не знайдено!"); return; }
             if (coreHex.units && coreHex.units.civilian) { alert("На ратуші вже стоїть гонець!"); return; }
 
-            const newCiv = {
-                id: generateUnitId(), type: 'messenger', owner: currentUsername,
-                state: 'idle', message: text
-            };
+            const newCiv = { id: generateUnitId(), type: 'messenger', owner: currentUsername, state: 'idle', message: text };
             const updates = {};
             if (!coreHex.units) updates[`world_hexes/${coreKey}/units`] = { military: null, civilian: newCiv };
             else updates[`world_hexes/${coreKey}/units/civilian`] = newCiv;
@@ -4101,7 +4298,9 @@
             document.getElementById('message-modal').style.display = 'none';
         }
 
-        // ===== INBOX =====
+        // =====================================================================
+        // INBOX
+        // =====================================================================
         window.openInboxModal = async function() {
             hideAllModals();
             const modal = document.getElementById('inbox-modal');
@@ -4156,7 +4355,9 @@
             } catch (err) { alert('Помилка: ' + err.message); }
         }
 
-        // ===== МІСТ =====
+        // =====================================================================
+        // МІСТ
+        // =====================================================================
         function openBridgeModal(r, c) {
             hideAllModals();
             const modal = document.getElementById('territory-modal');
@@ -4188,7 +4389,9 @@
             } catch (err) { alert(err.message); }
         }
 
-        // ===== МЕНЮ ГЕКСА =====
+        // =====================================================================
+        // МЕНЮ ГЕКСА (openTerritoryModal) — повна логіка
+        // =====================================================================
         function openTerritoryModal(r, c, hexInfo) {
             hideAllModals();
             const modal = document.getElementById('territory-modal');
@@ -4363,7 +4566,7 @@
             document.getElementById('territory-modal').style.display = 'none';
             selectedHexCoords = null;
             activeSelection = null;
-            if (showAllEnemyZOC) { showAllEnemyZOC = false; }
+            if (showAllEnemyZOC) showAllEnemyZOC = false;
             scheduleRender();
         }
 
@@ -4411,10 +4614,10 @@
                     const parts = hexKey.split('_');
                     const r = parseInt(parts[0]), c = parseInt(parts[1]);
                     let millCount = 0;
-                    getNeighbors(r, c).forEach(n => {
+                    for (const n of getNeighbors(r, c)) {
                         const nh = hexWorldData[n.key];
                         if (nh && nh.owner === currentUsername && nh.type === 'mill') millCount++;
-                    });
+                    }
                     if (millCount > 0) {
                         result.income += millCount;
                         result.bonusLines.push(`Вітряків поруч: ${millCount} (+${millCount} золота/хв)`);
@@ -4425,10 +4628,10 @@
                     const parts = hexKey.split('_');
                     const r = parseInt(parts[0]), c = parseInt(parts[1]);
                     let farmCount = 0;
-                    getNeighbors(r, c).forEach(n => {
+                    for (const n of getNeighbors(r, c)) {
                         const nh = hexWorldData[n.key];
                         if (nh && nh.owner === currentUsername && nh.type === 'farm') farmCount++;
-                    });
+                    }
                     if (farmCount > 0) result.bonusLines.push(`Підсилює ${farmCount} ферм(у) на +${farmCount} золота/хв`);
                     else result.bonusLines.push(`Немає ферм поруч (бонус 0)`);
                 }
@@ -4443,8 +4646,7 @@
             if (type === 'bridge') result.hexUpkeep = 2;
             else if (type === 'core') result.hexUpkeep = 0;
             else if (hexInfo.isPurchased === true || type === 'purchased') {
-                const nearMyCore = isAdjacentToMyCore(hexKey);
-                if (!nearMyCore) result.hexUpkeep = 2;
+                if (!isAdjacentToMyCore(hexKey)) result.hexUpkeep = 2;
             }
 
             if (type === 'bank') result.buildingUpkeep = getBankUpkeep(hexInfo);
@@ -4454,7 +4656,9 @@
             return result;
         }
 
-        // ===== ПРІОРИТЕТ БАНКУ =====
+        // =====================================================================
+        // БАНК: пріоритет / забрати / ємність
+        // =====================================================================
         window.toggleBankPriority = async function(r, c, enable) {
             const key = `${r}_${c}`;
             const hex = hexWorldData[key];
@@ -4502,7 +4706,9 @@
             closeTerritoryModal();
         }
 
-        // ===== КУПІВЛЯ / ПРОДАЖ =====
+        // =====================================================================
+        // КУПІВЛЯ / ПРОДАЖ / ЗНЕСЕННЯ
+        // =====================================================================
         window.buyTerritory = async function(r, c) {
             if (userGold < 10) { alert("Потрібно 10 золота."); return; }
             const key = `${r}_${c}`;
@@ -4543,7 +4749,6 @@
             } catch (err) { alert(err.message); }
         }
 
-        // ===== ЗНЕСЕННЯ МОСТУ =====
         window.demolishBridge = async function(r, c) {
             const key = `${r}_${c}`;
             const hex = hexWorldData[key];
@@ -4586,10 +4791,7 @@
                 const destH = hexWorldData[freeForMil] || {};
                 updates[`world_hexes/${freeForMil}`] = {
                     ...destH,
-                    units: {
-                        military: milUnit,
-                        civilian: (destH.units && destH.units.civilian) || null
-                    }
+                    units: { military: milUnit, civilian: (destH.units && destH.units.civilian) || null }
                 };
             }
             if (hasCiv && isCivMine && freeForCiv) {
@@ -4598,10 +4800,7 @@
                 const existingUnits = destH.units || { military: null, civilian: null };
                 updates[`world_hexes/${freeForCiv}`] = {
                     ...destH,
-                    units: {
-                        military: existingUnits.military || null,
-                        civilian: civUnit
-                    }
+                    units: { military: existingUnits.military || null, civilian: civUnit }
                 };
             }
 
@@ -4612,7 +4811,85 @@
             } catch (err) { alert(err.message); }
         }
 
-        // ===== ВИБІР ЮНІТА =====
+        window.buildBuilding = async function(r, c, type) {
+            let cost = 10;
+            if (type === 'mill') cost = 20;
+            else if (type === 'bank') cost = BANK_PRICE;
+            if (userGold < cost) { alert(`Потрібно ${cost} золота.`); return; }
+            const key = `${r}_${c}`;
+            const currentHex = hexWorldData[key];
+            if (!currentHex || currentHex.owner !== currentUsername) { alert("Це не ваш гекс!"); closeTerritoryModal(); return; }
+            const wasPurchased = currentHex.isPurchased === true || currentHex.type === 'purchased';
+            const updates = {};
+            if (type === 'bank') {
+                updates[`world_hexes/${key}`] = {
+                    owner: currentUsername,
+                    color: currentHex.color || getPlayerColor(currentUsername),
+                    type: 'bank', capacity: BANK_CAPACITY_SMALL, stored: 0,
+                    acceptingGold: true, createdAt: Date.now(),
+                    isPurchased: wasPurchased,
+                    units: { military: (currentHex.units && currentHex.units.military) || null, civilian: (currentHex.units && currentHex.units.civilian) || null }
+                };
+            } else {
+                updates[`world_hexes/${key}`] = {
+                    owner: currentUsername,
+                    color: currentHex.color || getPlayerColor(currentUsername),
+                    type, isPurchased: wasPurchased,
+                    units: { military: (currentHex.units && currentHex.units.military) || null, civilian: (currentHex.units && currentHex.units.civilian) || null }
+                };
+            }
+            updates[`users/${currentUsername}/gold`] = userGold - cost;
+            updates[`users/${currentUsername}/lastOnline`] = Date.now();
+            try {
+                await update(ref(db), updates);
+                closeTerritoryModal();
+                alert(type === 'farm' ? "Ферму зведено!" : (type === 'mill' ? "Вітряк зведено!" : "Банк зведено!"));
+            } catch (err) { alert(err.message); }
+        }
+
+        window.demolishBuilding = async function(r, c) {
+            if (userGold < 5) { alert("Потрібно 5 золота."); return; }
+            const key = `${r}_${c}`;
+            const hexInfo = hexWorldData[key];
+            if (!hexInfo || hexInfo.owner !== currentUsername) return;
+
+            const hasMil = hexInfo.units && hexInfo.units.military;
+            const hasCiv = hexInfo.units && hexInfo.units.civilian;
+            const isMilMine = hasMil && hexInfo.units.military.owner === currentUsername;
+            const isCivMine = hasCiv && hexInfo.units.civilian.owner === currentUsername;
+            if ((hasMil && !isMilMine) || (hasCiv && !isCivMine)) {
+                alert("На гексі стоїть чужий юніт. Спочатку проженіть його!");
+                return;
+            }
+
+            const wasPurchased = hexInfo.isPurchased === true;
+            const restoredType = wasPurchased ? 'purchased' : 'starter';
+            const updates = {};
+            if (hexInfo.type === 'bank' && (hexInfo.stored || 0) > 0) {
+                if (!confirm(`У банку ${Math.floor(hexInfo.stored)} золота. При знесенні воно зникне. Продовжити?`)) return;
+            }
+
+            updates[`world_hexes/${key}`] = {
+                owner: hexInfo.owner,
+                color: hexInfo.color,
+                type: restoredType,
+                isPurchased: wasPurchased,
+                units: {
+                    military: (hexInfo.units && hexInfo.units.military) || null,
+                    civilian: (hexInfo.units && hexInfo.units.civilian) || null
+                }
+            };
+            updates[`users/${currentUsername}/gold`] = userGold - 5;
+            updates[`users/${currentUsername}/lastOnline`] = Date.now();
+            try {
+                await update(ref(db), updates);
+                closeTerritoryModal();
+                alert("Знесено!");
+            } catch (err) { alert(err.message); }
+        }
+                // =====================================================================
+        // ВИБІР ЮНІТА
+        // =====================================================================
         function openUnitSelectionModal(r, c, hexInfo) {
             hideAllModals();
             const hasMil = isMyMilitary(hexInfo);
@@ -4748,7 +5025,7 @@
         window.closeUnitModal = function() {
             document.getElementById('unit-modal').style.display = 'none';
             activeSelection = null;
-            if (showAllEnemyZOC) { showAllEnemyZOC = false; }
+            if (showAllEnemyZOC) showAllEnemyZOC = false;
             scheduleRender();
         }
 
@@ -4765,7 +5042,9 @@
             if (isMyCivilian(h)) openCivilianModal(r, c, h);
         }
 
-        // ===== ЗАХОПЛЕННЯ ГЕКСА =====
+        // =====================================================================
+        // ЗАХОПЛЕННЯ ГЕКСА
+        // =====================================================================
         window.captureHex = async function(r, c) {
             const key = `${r}_${c}`;
             const hexInfo = hexWorldData[key];
@@ -4812,7 +5091,9 @@
             }
         }
 
-        // ===== ВІДСТУП =====
+        // =====================================================================
+        // ВІДСТУП
+        // =====================================================================
         window.retreatMilitary = async function(r, c) {
             const key = `${r}_${c}`;
             const h = hexWorldData[key];
@@ -4829,7 +5110,9 @@
             catch (err) { alert(err.message); }
         }
 
-        // ===== РУХ =====
+        // =====================================================================
+        // РУХ
+        // =====================================================================
         window.startMilitaryMove = function(r, c) {
             closeUnitModal();
             isSelectingMoveTarget = true;
@@ -4930,7 +5213,9 @@
             return { toNext, total };
         }
 
-        // ===== ЛІКУВАННЯ =====
+        // =====================================================================
+        // ЛІКУВАННЯ / ГРАБУНКИ
+        // =====================================================================
         window.healUnit = async function(r, c) {
             const key = `${r}_${c}`;
             const hex = hexWorldData[key];
@@ -4951,7 +5236,6 @@
             } catch (err) { alert(err.message); }
         }
 
-        // ===== ПОГРАБУВАННЯ =====
         window.robBank = async function(r, c) {
             const key = `${r}_${c}`;
             const hex = hexWorldData[key];
@@ -5006,87 +5290,65 @@
             alert("Щоб атакувати ратушу — оберіть її гекс на карті та натисніть 'Атакувати ратушу'.");
         }
 
-        // ===== БУДІВНИЦТВО =====
-        window.buildBuilding = async function(r, c, type) {
-            let cost = 10;
-            if (type === 'mill') cost = 20;
-            else if (type === 'bank') cost = BANK_PRICE;
-            if (userGold < cost) { alert(`Потрібно ${cost} золота.`); return; }
-            const key = `${r}_${c}`;
-            const currentHex = hexWorldData[key];
-            if (!currentHex || currentHex.owner !== currentUsername) { alert("Це не ваш гекс!"); closeTerritoryModal(); return; }
-            const wasPurchased = currentHex.isPurchased === true || currentHex.type === 'purchased';
-            const updates = {};
-            if (type === 'bank') {
-                updates[`world_hexes/${key}`] = {
-                    owner: currentUsername,
-                    color: currentHex.color || getPlayerColor(currentUsername),
-                    type: 'bank', capacity: BANK_CAPACITY_SMALL, stored: 0,
-                    acceptingGold: true, createdAt: Date.now(),
-                    isPurchased: wasPurchased,
-                    units: { military: (currentHex.units && currentHex.units.military) || null, civilian: (currentHex.units && currentHex.units.civilian) || null }
-                };
-            } else {
-                updates[`world_hexes/${key}`] = {
-                    owner: currentUsername,
-                    color: currentHex.color || getPlayerColor(currentUsername),
-                    type, isPurchased: wasPurchased,
-                    units: { military: (currentHex.units && currentHex.units.military) || null, civilian: (currentHex.units && currentHex.units.civilian) || null }
-                };
-            }
-            updates[`users/${currentUsername}/gold`] = userGold - cost;
-            updates[`users/${currentUsername}/lastOnline`] = Date.now();
-            try {
-                await update(ref(db), updates);
-                closeTerritoryModal();
-                alert(type === 'farm' ? "Ферму зведено!" : (type === 'mill' ? "Вітряк зведено!" : "Банк зведено!"));
-            } catch (err) { alert(err.message); }
+        // =====================================================================
+        // АВТОРЕМОНТ РАТУШ
+        // =====================================================================
+        function computeAutoHealStartIn(coreHex, nowMs) {
+            if (!coreHex || coreHex.type !== 'core') return null;
+            const maxHp = getCoreMaxHp(coreHex.level || 1);
+            const hp = coreHex.hp !== undefined ? coreHex.hp : maxHp;
+            if (hp >= maxHp) return null;
+            if (!coreHex.lastDamageAt) return null;
+            const now = nowMs || Date.now();
+            const healStartAt = coreHex.lastDamageAt + CORE_AUTO_HEAL_DELAY_MS;
+            if (now >= healStartAt) return 0;
+            return healStartAt - now;
         }
 
-        // ===== ЗНЕСЕННЯ БУДІВЛІ =====
-        window.demolishBuilding = async function(r, c) {
-            if (userGold < 5) { alert("Потрібно 5 золота."); return; }
-            const key = `${r}_${c}`;
-            const hexInfo = hexWorldData[key];
-            if (!hexInfo || hexInfo.owner !== currentUsername) return;
+        function computeCoreAutoHeal(coreHex, now) {
+            if (!coreHex || coreHex.type !== 'core') return null;
+            const maxHp = getCoreMaxHp(coreHex.level || 1);
+            const hp = coreHex.hp !== undefined ? coreHex.hp : maxHp;
+            if (hp >= maxHp) return null;
+            if (!coreHex.lastDamageAt) return null;
+            const sinceDamage = now - coreHex.lastDamageAt;
+            if (sinceDamage < CORE_AUTO_HEAL_DELAY_MS) return null;
+            const healStartAt = Math.max(coreHex.lastDamageAt + CORE_AUTO_HEAL_DELAY_MS, coreHex.lastHealAt || 0);
+            const msElapsed = now - healStartAt;
+            if (msElapsed <= 0) return null;
+            const healAmount = (msElapsed / 60000) * CORE_HEAL_RATE_PER_MIN;
+            const newHp = Math.min(maxHp, hp + healAmount);
+            if (newHp <= hp) return null;
+            return { newHp, newLastHealAt: now, changed: true };
+        }
 
-            const hasMil = hexInfo.units && hexInfo.units.military;
-            const hasCiv = hexInfo.units && hexInfo.units.civilian;
-            const isMilMine = hasMil && hexInfo.units.military.owner === currentUsername;
-            const isCivMine = hasCiv && hexInfo.units.civilian.owner === currentUsername;
-            if ((hasMil && !isMilMine) || (hasCiv && !isCivMine)) {
-                alert("На гексі стоїть чужий юніт. Спочатку проженіть його!");
-                return;
-            }
-
-            const wasPurchased = hexInfo.isPurchased === true;
-            const restoredType = wasPurchased ? 'purchased' : 'starter';
-            const updates = {};
-            if (hexInfo.type === 'bank' && (hexInfo.stored || 0) > 0) {
-                if (!confirm(`У банку ${Math.floor(hexInfo.stored)} золота. При знесенні воно зникне. Продовжити?`)) return;
-            }
-
-            updates[`world_hexes/${key}`] = {
-                owner: hexInfo.owner,
-                color: hexInfo.color,
-                type: restoredType,
-                isPurchased: wasPurchased,
-                units: {
-                    military: (hexInfo.units && hexInfo.units.military) || null,
-                    civilian: (hexInfo.units && hexInfo.units.civilian) || null
+        let autoHealInterval = null;
+        function startAutoHealLoop() {
+            if (autoHealInterval) clearInterval(autoHealInterval);
+            autoHealInterval = setInterval(async () => {
+                if (!currentUsername) return;
+                if (document.visibilityState !== 'visible') return;
+                const now = Date.now();
+                const updates = {};
+                let healedSomething = false;
+                for (const key in hexWorldData) {
+                    const h = hexWorldData[key];
+                    if (!h || h.type !== 'core') continue;
+                    const result = computeCoreAutoHeal(h, now);
+                    if (result && result.changed) {
+                        updates[`world_hexes/${key}/hp`] = result.newHp;
+                        updates[`world_hexes/${key}/lastHealAt`] = result.newLastHealAt;
+                        healedSomething = true;
+                    }
                 }
-            };
-            updates[`users/${currentUsername}/gold`] = userGold - 5;
-            updates[`users/${currentUsername}/lastOnline`] = Date.now();
-            try {
-                await update(ref(db), updates);
-                closeTerritoryModal();
-                alert("Знесено!");
-            } catch (err) { alert(err.message); }
+                if (healedSomething && Object.keys(updates).length > 0) {
+                    try { await update(ref(db), updates); } catch (err) { console.error('Онлайн-авторемонт:', err); }
+                }
+            }, 10000);
         }
 
         // =====================================================================
-        // ТІК ЩОСЕКУНДИ — оновлення модалок
+        // ТІК ЩОСЕКУНДИ — оновлення відкритих модалок
         // =====================================================================
         let unitTimeTickInterval = null;
         function startUnitTimeTick() {
@@ -5141,7 +5403,6 @@
                     }
                 }
 
-                // Ратуша — оновлення HP/авторемонту
                 const thModal = document.getElementById('townhall-modal');
                 if (thModal && thModal.style.display === 'block') {
                     let coreHex = null;
@@ -5178,7 +5439,6 @@
                     }
                 }
 
-                // Територія — рефреш
                 const terrModal = document.getElementById('territory-modal');
                 if (terrModal && terrModal.style.display === 'block') {
                     refreshTerritoryModal();
@@ -5202,89 +5462,6 @@
             }
         }
 
-        // ===== АВТОРЕМОНТ РАТУШ =====
-        function computeAutoHealStartIn(coreHex, nowMs) {
-            if (!coreHex || coreHex.type !== 'core') return null;
-            const maxHp = getCoreMaxHp(coreHex.level || 1);
-            const hp = coreHex.hp !== undefined ? coreHex.hp : maxHp;
-            if (hp >= maxHp) return null;
-            if (!coreHex.lastDamageAt) return null;
-            const now = nowMs || Date.now();
-            const healStartAt = coreHex.lastDamageAt + CORE_AUTO_HEAL_DELAY_MS;
-            if (now >= healStartAt) return 0;
-            return healStartAt - now;
-        }
-
-        function computeCoreAutoHeal(coreHex, now) {
-            if (!coreHex || coreHex.type !== 'core') return null;
-            const maxHp = getCoreMaxHp(coreHex.level || 1);
-            const hp = coreHex.hp !== undefined ? coreHex.hp : maxHp;
-            if (hp >= maxHp) return null;
-            if (!coreHex.lastDamageAt) return null;
-            const sinceDamage = now - coreHex.lastDamageAt;
-            if (sinceDamage < CORE_AUTO_HEAL_DELAY_MS) return null;
-            const healStartAt = Math.max(coreHex.lastDamageAt + CORE_AUTO_HEAL_DELAY_MS, coreHex.lastHealAt || 0);
-            const msElapsed = now - healStartAt;
-            if (msElapsed <= 0) return null;
-            const healAmount = (msElapsed / 60000) * CORE_HEAL_RATE_PER_MIN;
-            const newHp = Math.min(maxHp, hp + healAmount);
-            if (newHp <= hp) return null;
-            return { newHp, newLastHealAt: now, changed: true };
-        }
-
-        let autoHealInterval = null;
-        function startAutoHealLoop() {
-            if (autoHealInterval) clearInterval(autoHealInterval);
-            autoHealInterval = setInterval(async () => {
-                if (!currentUsername) return;
-                if (document.visibilityState !== 'visible') return;
-                const now = Date.now();
-                const updates = {};
-                let healedSomething = false;
-                for (const key in hexWorldData) {
-                    const h = hexWorldData[key];
-                    if (!h || h.type !== 'core') continue;
-                    const result = computeCoreAutoHeal(h, now);
-                    if (result && result.changed) {
-                        updates[`world_hexes/${key}/hp`] = result.newHp;
-                        updates[`world_hexes/${key}/lastHealAt`] = result.newLastHealAt;
-                        healedSomething = true;
-                    }
-                }
-                if (healedSomething && Object.keys(updates).length > 0) {
-                    try { await update(ref(db), updates); } catch (err) { console.error('Помилка онлайн-авторемонту:', err); }
-                }
-            }, 10000);
-        }
-                // =====================================================================
-        // СЛУХАЧ СВІТУ: інвалідація кешів + тригер рендеру
-        // =====================================================================
-        function listenToWorldData() {
-            if (unsubWorld) unsubWorld();
-            unsubWorld = onValue(ref(db, 'world_hexes'), (snapshot) => {
-                hexWorldData = snapshot.exists() ? snapshot.val() : {};
-
-                // Інвалідація кешів — дані змінились
-                invalidateColorCache();
-                invalidateStepMsCache();
-                staticDirty = true;   // статика перемальовується
-                scheduleRender();
-
-                tryMigrateCoreHpOnce();
-                updateIncomeDisplay();
-
-                const newCap = getGoldCap(currentUsername);
-                if (newCap !== userGoldCap) {
-                    userGoldCap = newCap;
-                    updateGoldDisplay();
-                }
-
-                // Оновлення відкритих модалок
-                refreshUnitModal();
-                refreshTerritoryModal();
-            });
-        }
-
         function refreshUnitModal() {
             const modal = document.getElementById('unit-modal');
             if (!modal || modal.style.display !== 'block' || !activeSelection || activeSelection.layer !== 'unit') return;
@@ -5300,9 +5477,36 @@
             } else {
                 modal.style.display = 'none';
                 activeSelection = null;
-                if (showAllEnemyZOC) { showAllEnemyZOC = false; }
+                if (showAllEnemyZOC) showAllEnemyZOC = false;
                 scheduleRender();
             }
+        }
+
+        // =====================================================================
+        // СЛУХАЧ СВІТУ
+        // =====================================================================
+        function listenToWorldData() {
+            if (unsubWorld) unsubWorld();
+            unsubWorld = onValue(ref(db, 'world_hexes'), (snapshot) => {
+                hexWorldData = snapshot.exists() ? snapshot.val() : {};
+
+                invalidateColorCache();
+                invalidateStepMsCache();
+                staticDirty = true;
+                scheduleRender();
+
+                tryMigrateCoreHpOnce();
+                updateIncomeDisplay();
+
+                const newCap = getGoldCap(currentUsername);
+                if (newCap !== userGoldCap) {
+                    userGoldCap = newCap;
+                    updateGoldDisplay();
+                }
+
+                refreshUnitModal();
+                refreshTerritoryModal();
+            });
         }
 
         // ===== МІГРАЦІЯ HP РАТУШ =====
@@ -5328,11 +5532,10 @@
             }
             if (Object.keys(updates).length > 0) {
                 try { await update(ref(db), updates); }
-                catch (err) { console.error('Помилка міграції HP ратуш:', err); }
+                catch (err) { console.error('Міграція HP ратуш:', err); }
             }
         }
 
-        let coreHpMigrated = false;
         function tryMigrateCoreHpOnce() {
             if (coreHpMigrated) return;
             coreHpMigrated = true;
@@ -5360,15 +5563,13 @@
             });
         });
 
-        // Обробка зміни орієнтації / показу канваса
         window.addEventListener('orientationchange', () => {
             setTimeout(() => { if (canvas) resizeCanvas(); }, 250);
         });
 
         // =====================================================================
-        // СТАРТ (глобальний) — якщо користувач вже залогінений (не потрібно)
+        // ЗАВЕРШЕННЯ
         // =====================================================================
-        // Нічого автоматично не запускаємо — усе стартує в handleAuth
-            </script>
+    </script>
 </body>
 </html>
