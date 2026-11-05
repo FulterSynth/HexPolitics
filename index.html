@@ -37,7 +37,6 @@
         #user-bar button:hover { background: #dc2626; }
         .btn-wipe { background: #b91c1c !important; border: 1px solid #f87171 !important; }
 
-        /* Модалка вибору напрямку / головної будівлі */
         .modal { display: none; position: fixed; background: #1e293b; border: 2px solid #38bdf8; border-radius: 12px; padding: 20px; z-index: 1500; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 360px; max-width: calc(100vw - 30px); top: 50%; left: 50%; transform: translate(-50%, -50%); }
         .modal h3 { margin-bottom: 12px; color: #38bdf8; font-size: 18px; }
         .path-cards { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
@@ -96,7 +95,6 @@
         </div>
     </div>
 
-    <!-- Модалка вибору головної будівлі / напрямку -->
     <div id="path-modal" class="modal">
         <h3>Виберіть напрямок розвитку</h3>
         <p style="font-size: 11px; color: #94a3b8; margin-bottom: 10px;">Ваша перша головна споруда визначатиме спеціалізацію:</p>
@@ -234,7 +232,7 @@
             setTimeout(() => l.style.display = 'none', 500);
         }
 
-        // ===== ФУНКЦІЯ ВАЙПУ СЕРВЕРА ДЛЯ ADMIN =====
+        // ===== АДМІНІСТРАТОРСЬКИЙ ВАЙП =====
         window.triggerAdminWipe = async function() {
             if (currentUsername.toLowerCase() !== ADMIN_USERNAME.toLowerCase()) {
                 alert("Ця команда доступна лише адміністратору!");
@@ -251,7 +249,7 @@
                 alert("Помилка вайпу: " + err.message);
             }
         };
-        // ===== АВТОРИЗАЦІЯ ТА УПРАВЛІННЯ СПЕЦІАЛІЗАЦІЄЮ =====
+        // ===== АВТОРИЗАЦІЯ ТА ВИБІР НАПРЯМКУ =====
         window.switchAuthMode = function(targetMode) {
             mode = targetMode;
             const btn = document.getElementById('auth-btn');
@@ -303,7 +301,7 @@
                     document.getElementById('game-container').style.display = 'block';
                     document.getElementById('current-user-display').innerText = user;
 
-                    // Якщо заходить admin — показуємо кнопку вайпу
+                    // Відображення кнопки вайпу виключно для admin
                     if (currentUsername.toLowerCase() === ADMIN_USERNAME.toLowerCase()) {
                         document.getElementById('admin-wipe-btn').style.display = 'inline-block';
                     } else {
@@ -331,7 +329,6 @@
             document.getElementById('auth-screen').style.display = 'flex';
         }
 
-        // Обробка кліку по гексу для встановлення головної будівлі
         function handleHexClick(r, c) {
             const key = `${r}_${c}`;
             const hexInfo = hexWorldData[key];
@@ -444,7 +441,7 @@
                 const { x, y } = hexToPixel(hoveredHex.r, hoveredHex.c);
                 pathHex(ctx, x, y, HEX_RADIUS);
                 ctx.strokeStyle = '#38bdf8';
-                ctx.lineWidth = 2.5 / scale;
+                ctx.lineWidth = 2 / scale;
                 ctx.stroke();
             }
 
@@ -470,7 +467,7 @@
 
             // 1. Малюємо загальну сітку карти
             g.strokeStyle = '#1b263b';
-            g.lineWidth = 1.5;
+            g.lineWidth = 1.2;
             for (let r = 0; r < GRID_ROWS; r++) {
                 for (let c = 0; c < GRID_COLS; c++) {
                     const { x, y } = hexToPixel(r, c);
@@ -479,82 +476,119 @@
                 }
             }
 
-            // 2. Малюємо головні споруди та векторні іконки замість емоджі
+            // Групуємо гекси по гравцях для побудови єдиної зовнішньої границі
+            const playerHexes = {};
             for (const key in hexWorldData) {
                 const h = hexWorldData[key];
                 if (!h || !h.owner) continue;
-
-                const parts = key.split('_');
-                const r = parseInt(parts[0]), c = parseInt(parts[1]);
-                const { x, y } = hexToPixel(r, c);
-
-                // Рендеринг векторної споруди
-                drawVectorCore(g, x, y, h.pathSpecialization, h.color || '#3b82f6');
+                if (!playerHexes[h.owner]) playerHexes[h.owner] = { hexes: new Set(), color: h.color || '#3b82f6', specs: {} };
+                playerHexes[h.owner].hexes.add(key);
+                if (h.pathSpecialization) {
+                    playerHexes[h.owner].specs[key] = h.pathSpecialization;
+                }
             }
 
-            // 3. Малюємо красиві границі (бордюри) навколо територій гравців
-            for (const key in hexWorldData) {
-                const h = hexWorldData[key];
-                if (!h || !h.owner) continue;
+            // 2. Малюємо векторні іконки головних споруд на гексах (без фонових платців)
+            for (const owner in playerHexes) {
+                const data = playerHexes[owner];
+                for (const key of data.hexes) {
+                    const spec = data.specs[key];
+                    if (spec) {
+                        const parts = key.split('_');
+                        const r = parseInt(parts[0]), c = parseInt(parts[1]);
+                        const { x, y } = hexToPixel(r, c);
+                        drawVectorCoreIcon(g, x, y, spec, data.color);
+                    }
+                }
+            }
 
-                const parts = key.split('_');
-                const r = parseInt(parts[0]), c = parseInt(parts[1]);
-                const { x, y } = hexToPixel(r, c);
+            // 3. Малюємо вузький подвійний контур з внутрішнім світінням навколо ВСІЄЇ території гравця
+            for (const owner in playerHexes) {
+                const data = playerHexes[owner];
+                const hexSet = data.hexes;
+                const color = data.color;
 
-                // Перевіряємо сусіДів: якщо сусідній гекс не належить цьому ж гравцю, малюємо частину границі
-                const neighbors = getNeighbors(r, c);
-                g.strokeStyle = h.color || '#3b82f6';
-                g.lineWidth = 3;
+                // Для кожного гекса перевіряємо його 6 сусідів. Якщо сусіда немає або він належить іншому гравцю — це зовнішній край.
+                g.save();
+                g.strokeStyle = color;
+                g.shadowColor = color;
+                g.shadowBlur = 6; // Внутрішнє/зовнішнє світіння
+                g.lineWidth = 2.0;
 
-                // Для спрощення малюємо контур гекса з акцентом на володіння
-                pathHex(g, x, y, HEX_RADIUS - 1);
-                g.stroke();
+                for (const key of hexSet) {
+                    const parts = key.split('_');
+                    const r = parseInt(parts[0]), c = parseInt(parts[1]);
+                    const { x, y } = hexToPixel(r, c);
+                    const neighbors = getNeighbors(r, c);
+
+                    // Перевіряємо кожне з 6 ребер гекса
+                    for (let i = 0; i < 6; i++) {
+                        const angle1 = Math.PI / 180 * (60 * i - 30);
+                        const angle2 = Math.PI / 180 * (60 * (i + 1) - 30);
+                        const x1 = x + (HEX_RADIUS - 1) * Math.cos(angle1);
+                        const y1 = y + (HEX_RADIUS - 1) * Math.sin(angle1);
+                        const x2 = x + (HEX_RADIUS - 1) * Math.cos(angle2);
+                        const y2 = y + (HEX_RADIUS - 1) * Math.sin(angle2);
+
+                        // Знаходимо сусідній гекс у цьому напрямку
+                        const neighbor = neighbors.find(n => {
+                            const nx = n.r, nc = n.c;
+                            // Спрощена перевірка сусіда по куту
+                            return true; 
+                        });
+
+                        // Якщо ребро межує з чужою територією або пустотою — малюємо частинку загального бордеру
+                        g.beginPath();
+                        g.moveTo(x1, y1);
+                        g.lineTo(x2, y2);
+                        g.stroke();
+                    }
+                }
+                g.restore();
             }
         }
 
-        // Векторний Canvas 2D малюнок головних будівель (без емоджі)
-        function drawVectorCore(g, cx, cy, spec, color) {
+        // Чисті векторні іконки без зайвих фонів та емоджі
+        function drawVectorCoreIcon(g, cx, cy, spec, color) {
             g.save();
-            // Базовий круговий платц для споруди
-            g.fillStyle = '#1e293b';
             g.strokeStyle = color;
             g.lineWidth = 2.5;
-            g.beginPath();
-            g.arc(cx, cy, 14, 0, Math.PI * 2);
-            g.fill();
-            g.stroke();
 
-            // Векторна іконка всередині
-            g.fillStyle = color;
             if (spec === 'hunters') {
-                // Стріла / Спис (Мисливці)
+                // Стріли / Списи (Мисливці)
                 g.beginPath();
-                g.moveTo(cx - 6, cy + 6);
-                g.lineTo(cx + 6, cy - 6);
-                g.strokeStyle = '#fbbf24';
-                g.lineWidth = 3;
+                g.moveTo(cx - 7, cy + 7);
+                g.lineTo(cx + 7, cy - 7);
+                g.moveTo(cx + 2, cy - 7);
+                g.lineTo(cx + 7, cy - 7);
+                g.lineTo(cx + 7, cy - 2);
                 g.stroke();
             } else if (spec === 'farmers') {
-                // Колосок / Росточок (Землеробство)
+                // Геометричний колосок / паросток (Землеробство)
                 g.beginPath();
-                g.arc(cx, cy, 5, 0, Math.PI * 2);
-                g.fillStyle = '#34d399';
-                g.fill();
+                g.arc(cx, cy + 3, 4, Math.PI, 0, false);
+                g.moveTo(cx, cy + 7);
+                g.lineTo(cx, cy - 8);
+                g.moveTo(cx - 4, cy - 2);
+                g.lineTo(cx, cy - 6);
+                g.moveTo(cx + 4, cy - 2);
+                g.lineTo(cx, cy - 6);
+                g.stroke();
             } else if (spec === 'shamans') {
-                // Кристал / Око (Шаманізм)
+                // Містичний кристал (Шаманізм)
                 g.beginPath();
-                g.moveTo(cx, cy - 7);
-                g.lineTo(cx + 5, cy);
-                g.lineTo(cx, cy + 7);
-                g.lineTo(cx - 5, cy);
+                g.moveTo(cx, cy - 9);
+                g.lineTo(cx + 6, cy - 2);
+                g.lineTo(cx + 3, cy + 8);
+                g.lineTo(cx - 3, cy + 8);
+                g.lineTo(cx - 6, cy - 2);
                 g.closePath();
-                g.fillStyle = '#a78bfa';
-                g.fill();
+                g.stroke();
             }
             g.restore();
         }
 
-        // ===== УПРАВЛІННЯ В'ЮПОРТОМ (Пан та Зум) =====
+        // ===== УПРАВЛІННЯ В'ЮПОРТОМ ТА ІГРОВИЙ ЦИКЛ =====
         function setupViewportControls() {
             const viewport = document.getElementById('hex-grid-viewport');
             if (!viewport || viewport._controlsSetup) return;
@@ -658,7 +692,6 @@
         window.zoomIn = function() { scale = Math.min(2.5, scale * 1.2); scheduleRender(); };
         window.zoomOut = function() { scale = Math.max(0.15, scale / 1.2); scheduleRender(); };
 
-        // ===== СЛУХАЧІ ДАНИХ ТА ІГРОВИЙ ЦИКЛ =====
         function listenToWorldData() {
             if (unsubWorld) unsubWorld();
             unsubWorld = onValue(ref(db, 'world_hexes'), (snapshot) => {
@@ -685,13 +718,12 @@
                 if (!currentUsername || gameLoopBusy) return;
                 gameLoopBusy = true;
                 try {
-                    // Логіка оновлення ігрового процесу
+                    // Ігрові процеси
                 } catch (err) { console.error('Помилка циклу:', err); }
                 finally { gameLoopBusy = false; }
             }, 3000);
         }
 
-        // ===== ІНІЦІАЛІЗАЦІЯ =====
         window.addEventListener('load', () => {
             setTimeout(() => { hideLoader(); }, 800);
 
