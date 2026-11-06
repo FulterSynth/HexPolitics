@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>HexPolitics v6.1.0</title>
+    <title>HexPolitics v6.2.0</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         body, html { height: 100%; width: 100%; overflow: hidden; background: #0f172a; color: #fff; user-select: none; -webkit-user-select: none; }
@@ -124,7 +124,6 @@
             transform: translateY(-1px);
         }
 
-        /* ===== МОДАЛКА ВИБОРУ НАПРЯМУ ===== */
         #path-modal {
             display: none;
             position: fixed;
@@ -274,7 +273,6 @@
             border: 1px solid rgba(251, 191, 36, 0.3);
         }
 
-        /* ===== МОДАЛКА ПРОФІЛЮ ===== */
         #profile-modal {
             display: none;
             position: fixed;
@@ -322,7 +320,6 @@
             font-style: italic;
         }
 
-        /* ===== READ-ONLY ПЕРЕГЛЯД УСІХ НАПРЯМІВ ===== */
         #all-paths-modal {
             display: none;
             position: fixed;
@@ -386,6 +383,198 @@
             transition: background 0.15s;
         }
         .all-paths-close-btn:hover { background: #475569; }
+
+        /* ============================================================ */
+        /* v6.2.0: ЕПОХИ                                                 */
+        /* ============================================================ */
+
+        .era-badge-topbar {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: rgba(251, 191, 36, 0.12);
+            border: 1px solid #fbbf24;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            color: #fcd34d;
+            font-weight: bold;
+            margin-left: 4px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .era-badge-topbar:hover {
+            background: rgba(251, 191, 36, 0.25);
+            transform: translateY(-1px);
+        }
+        .era-badge-topbar.bronze { background: rgba(217, 119, 6, 0.15); border-color: #d97706; color: #fbbf24; }
+        .era-badge-topbar.iron   { background: rgba(148, 163, 184, 0.15); border-color: #94a3b8; color: #cbd5e1; }
+
+        #era-transition-banner {
+            display: none;
+            position: fixed;
+            top: 64px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, rgba(251, 191, 36, 0.96) 0%, rgba(217, 119, 6, 0.96) 100%);
+            color: #0f172a;
+            padding: 10px 20px;
+            border-radius: 12px;
+            z-index: 650;
+            font-size: 13px;
+            font-weight: bold;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 6px 24px rgba(0,0,0,0.5), 0 0 0 2px rgba(251, 191, 36, 0.4);
+            width: max-content;
+            max-width: 92%;
+        }
+        #era-transition-banner.active { display: flex; }
+        #era-transition-banner.urgent {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.96) 0%, rgba(185, 28, 28, 0.96) 100%);
+            color: #fff;
+            animation: eraPulse 1.5s ease-in-out infinite;
+        }
+        @keyframes eraPulse {
+            0%, 100% { box-shadow: 0 6px 24px rgba(0,0,0,0.5), 0 0 0 2px rgba(239, 68, 68, 0.4); }
+            50%      { box-shadow: 0 6px 24px rgba(0,0,0,0.5), 0 0 0 6px rgba(239, 68, 68, 0.2); }
+        }
+        .era-transition-icon { font-size: 20px; line-height: 1; }
+        .era-transition-timer {
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            letter-spacing: 1px;
+            padding: 2px 8px;
+            background: rgba(15, 23, 42, 0.2);
+            border-radius: 6px;
+            font-weight: bold;
+        }
+
+        #admin-era-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.94);
+            z-index: 1960;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            backdrop-filter: blur(4px);
+            overflow-y: auto;
+        }
+        #admin-era-modal.active { display: flex; }
+        .admin-era-inner {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 2px solid #fbbf24;
+            border-radius: 16px;
+            padding: 24px;
+            width: 100%;
+            max-width: 480px;
+            max-height: 92vh;
+            overflow-y: auto;
+            margin: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+        }
+        .admin-era-inner h2 {
+            text-align: center;
+            color: #fbbf24;
+            font-size: 20px;
+            margin-bottom: 16px;
+        }
+        .admin-era-section {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 12px;
+            text-align: left;
+            font-size: 12px;
+        }
+        .admin-era-section h4 {
+            color: #38bdf8;
+            font-size: 13px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid #1e293b;
+            padding-bottom: 6px;
+        }
+        .admin-era-section .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 3px 0;
+            color: #94a3b8;
+        }
+        .admin-era-section .info-row b { color: #f8fafc; }
+        .admin-era-btn-row {
+            display: flex;
+            gap: 8px;
+            flex-direction: column;
+            margin-top: 8px;
+        }
+        .admin-era-btn-row button {
+            padding: 10px 14px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 12px;
+            width: 100%;
+            transition: all 0.15s;
+        }
+        .btn-era-next {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: #fff;
+        }
+        .btn-era-next:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+        .btn-era-cancel {
+            background: #dc2626;
+            color: #fff;
+        }
+        .btn-era-cancel:hover:not(:disabled) { background: #b91c1c; }
+        .btn-era-disabled {
+            background: #475569;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
+        .admin-era-warning {
+            text-align: center;
+            color: #fbbf24;
+            font-size: 11px;
+            margin-top: 8px;
+            padding: 8px;
+            background: rgba(251, 191, 36, 0.1);
+            border-radius: 6px;
+            border: 1px solid rgba(251, 191, 36, 0.3);
+        }
+
+        .era-history-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+            padding: 8px;
+            background: #020617;
+            border-radius: 6px;
+        }
+        .era-history-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 8px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            font-size: 10px;
+            color: #94a3b8;
+        }
+        .era-history-chip.current {
+            background: rgba(251, 191, 36, 0.15);
+            border-color: #fbbf24;
+            color: #fbbf24;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -393,8 +582,8 @@
     <div id="update-loader">
         <div class="loader-content">
             <div class="spinner"></div>
-            <h2 id="loader-status">HexPolitics v6.1.0</h2>
-            <p id="loader-desc">Напрями + профіль...</p>
+            <h2 id="loader-status">HexPolitics v6.2.0</h2>
+            <p id="loader-desc">Епохи та напрями...</p>
         </div>
     </div>
 
@@ -419,6 +608,10 @@
                 <div class="gold-display" id="gold-display-box">💰 <span id="user-gold-display">0</span> / <span id="gold-cap-display">30</span> <small style="opacity: 0.8;" id="income-speed-text">(+1/хв)</small></div>
             </div>
             <div class="user-actions">
+                <span class="era-badge-topbar" id="topbar-era-badge" onclick="openProfileModal()">
+                    <span id="topbar-era-icon">🪨</span>
+                    <span id="topbar-era-name">—</span>
+                </span>
                 <span class="path-badge-topbar" id="topbar-path-badge" style="display:none;" onclick="openProfileModal()">
                     <span id="topbar-path-icon">🏹</span>
                     <span id="topbar-path-name">—</span>
@@ -428,6 +621,7 @@
                     📜 <span id="inbox-unread-badge" class="inbox-badge" style="display: none;">0</span>
                 </button>
                 <button id="admin-wipe-btn" class="btn-wipe" style="display: none;" onclick="triggerAdminWipe()">💥 Вайп</button>
+                <button id="admin-era-btn" class="btn-wipe" style="display: none; background: #b45309 !important; border-color: #fbbf24 !important;" onclick="openAdminEraModal()">🏛️ Епохи</button>
                 <button onclick="logout()">Вийти</button>
             </div>
         </div>
@@ -508,35 +702,7 @@
                 Кожен напрям — це унікальний стиль гри.<br>
                 <b style="color:#fbbf24;" id="path-modal-warn-text">Увага: вибір не можна змінити до кінця епохи!</b>
             </div>
-            <div class="path-cards" id="path-cards-container">
-                <div class="path-card" data-path="hunter" onclick="selectPathCard('hunter')">
-                    <span class="path-icon">🏹</span>
-                    <div class="path-name">Мисливці-збирачі</div>
-                    <div class="path-desc">
-                        Виживання за рахунок швидкості та мобільності.
-                        Ваші воїни швидше переміщаються та краще орієнтуються на місцевості.
-                    </div>
-                    <div class="path-style">Стиль: мобільність та агресія</div>
-                </div>
-                <div class="path-card" data-path="farmer" onclick="selectPathCard('farmer')">
-                    <span class="path-icon">🌾</span>
-                    <div class="path-name">Землеробство</div>
-                    <div class="path-desc">
-                        Осіле життя та стабільний розвиток.
-                        Ваша економіка міцніша, а ратуша витриваліша до атак.
-                    </div>
-                    <div class="path-style">Стиль: економіка та захист</div>
-                </div>
-                <div class="path-card" data-path="shaman" onclick="selectPathCard('shaman')">
-                    <span class="path-icon">🔮</span>
-                    <div class="path-name">Шаманізм</div>
-                    <div class="path-desc">
-                        Зв'язок із духами предків.
-                        Ритуали дозволяють швидше відновлювати сили та краще розуміти ворогів.
-                    </div>
-                    <div class="path-style">Стиль: підтримка та відновлення</div>
-                </div>
-            </div>
+            <div class="path-cards" id="path-cards-container"></div>
             <div class="path-modal-footer">
                 <button class="path-confirm-btn" id="path-confirm-btn" onclick="confirmPathChoice()" disabled>
                     Оберіть напрям
@@ -566,6 +732,54 @@
         </div>
     </div>
 
+    <!-- ===== v6.2.0: БАНЕР ПЕРЕХОДУ ЕПОХИ ===== -->
+    <div id="era-transition-banner">
+        <span class="era-transition-icon" id="era-banner-icon">🥉</span>
+        <span id="era-banner-text">До нової епохи:</span>
+        <span class="era-transition-timer" id="era-banner-timer">24:00:00</span>
+    </div>
+
+    <!-- ===== v6.2.0: АДМІН-МОДАЛКА ЕПОХ ===== -->
+    <div id="admin-era-modal">
+        <div class="admin-era-inner">
+            <h2>🏛️ Управління епохами</h2>
+
+            <div class="admin-era-section">
+                <h4>Поточна епоха</h4>
+                <div class="info-row"><span>Епоха:</span> <b id="admin-era-current-name">—</b></div>
+                <div class="info-row"><span>Почалась:</span> <b id="admin-era-started-at">—</b></div>
+                <div class="info-row"><span>Історія:</span> <b id="admin-era-history">—</b></div>
+            </div>
+
+            <div class="admin-era-section" id="admin-era-transition-section" style="display:none;">
+                <h4>⚠️ Активний перехід</h4>
+                <div class="info-row"><span>До епохи:</span> <b id="admin-era-transition-to">—</b></div>
+                <div class="info-row"><span>Запущено:</span> <b id="admin-era-transition-started">—</b></div>
+                <div class="info-row"><span>Залишилось:</span> <b id="admin-era-transition-remaining" style="color: #fbbf24;">—</b></div>
+                <div class="info-row"><span>Ініціатор:</span> <b id="admin-era-transition-by">—</b></div>
+                <div class="admin-era-btn-row">
+                    <button class="btn-era-next" onclick="adminFinalizeTransitionNow()">⏭️ Завершити зараз</button>
+                    <button class="btn-era-cancel" onclick="adminCancelTransition()">❌ Скасувати перехід</button>
+                </div>
+            </div>
+
+            <div class="admin-era-section">
+                <h4>Дії</h4>
+                <div class="admin-era-btn-row">
+                    <button class="btn-era-next" id="admin-era-btn-force" onclick="adminForceNextEra()">🚀 Примусово почати наступну епоху</button>
+                    <button class="btn-era-cancel" onclick="adminResetToStone()">🔄 Відкатити до епохи каменю</button>
+                </div>
+                <div class="admin-era-warning">
+                    ⚠️ Примусовий перехід скидає <code>path</code> усіх гравців та запускає 24-годинний таймер.
+                </div>
+            </div>
+
+            <div class="admin-era-btn-row" style="margin-top: 16px;">
+                <button class="btn-era-disabled" onclick="closeAdminEraModal()" style="background: #64748b !important; color: #fff !important; cursor: pointer !important;">Закрити</button>
+            </div>
+        </div>
+    </div>
+
     <div id="message-modal">
         <h3 id="message-modal-title">📜 Повідомлення</h3>
         <div id="message-modal-body"></div>
@@ -576,8 +790,7 @@
         <span>Оберіть будь-який гекс на карті</span>
         <button onclick="cancelMoveMode()">Скасувати</button>
     </div>
-
-    <script type="module">
+        <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getDatabase, ref, set, get, child, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
@@ -595,7 +808,7 @@
         const db = getDatabase(app);
 
         const ADMIN_USERNAME = "admin";
-        const CURRENT_VERSION = "6.1.0";
+        const CURRENT_VERSION = "6.2.0";
 
         // === ГЕКС-СІТКА ===
         const GRID_ROWS = 25;
@@ -642,7 +855,100 @@
         const MILITARY_UPKEEP = 1;
         const SELL_TERRITORY_REWARD = 5;
 
-        // === СТАН ===
+        // === ЕПОХИ ===
+        const ERA_TRANSITION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 години
+
+        // ================================================================
+        // КОНСТАНТИ ЕПОХ
+        // ================================================================
+        const ERAS = {
+            stone: {
+                id: "stone",
+                name: "Епоха каменю",
+                icon: "🪨",
+                order: 1,
+                paths: ["hunter", "farmer", "shaman"],
+                cssClass: "",
+                transitionConditions: null // умови для переходу в наступну (задамо пізніше)
+            },
+            bronze: {
+                id: "bronze",
+                name: "Епоха бронзи",
+                icon: "🥉",
+                order: 2,
+                paths: ["honor", "monuments", "citystate"],
+                cssClass: "bronze",
+                transitionConditions: null
+            },
+            iron: {
+                id: "iron",
+                name: "Епоха заліза",
+                icon: "⚙️",
+                order: 3,
+                paths: [], // заповнимо пізніше
+                cssClass: "iron",
+                transitionConditions: null
+            }
+        };
+
+        function getEraInfo(eraId) { return ERAS[eraId] || null; }
+        function getNextEra(currentEraId) {
+            const cur = ERAS[currentEraId];
+            if (!cur) return null;
+            const order = Object.values(ERAS).sort((a, b) => a.order - b.order);
+            const idx = order.findIndex(e => e.id === currentEraId);
+            if (idx === -1 || idx >= order.length - 1) return null;
+            return order[idx + 1];
+        }
+
+        // ================================================================
+        // КОНСТАНТИ НАПРЯМІВ
+        // ================================================================
+        const PATHS = {
+            // === Епоха каменю ===
+            hunter: {
+                type: 'hunter', era: 'stone', icon: '🏹', name: 'Мисливці-збирачі',
+                desc: 'Виживання за рахунок швидкості та мобільності. Ваші воїни швидше переміщаються та краще орієнтуються на місцевості.',
+                style: 'Стиль: мобільність та агресія'
+            },
+            farmer: {
+                type: 'farmer', era: 'stone', icon: '🌾', name: 'Землеробство',
+                desc: 'Осіле життя та стабільний розвиток. Ваша економіка міцніша, а ратуша витриваліша до атак.',
+                style: 'Стиль: економіка та захист'
+            },
+            shaman: {
+                type: 'shaman', era: 'stone', icon: '🔮', name: 'Шаманізм',
+                desc: "Зв'язок із духами предків. Ритуали дозволяють швидше відновлювати сили та краще розуміти ворогів.",
+                style: 'Стиль: підтримка та відновлення'
+            },
+            // === Епоха бронзи ===
+            honor: {
+                type: 'honor', era: 'bronze', icon: '⚔️', name: 'Честь',
+                desc: 'Воїнська культура, лицарство та дуелі. Ваші воїни сильніші, а перемоги приносять славу.',
+                style: 'Стиль: агресія та репутація'
+            },
+            monuments: {
+                type: 'monuments', era: 'bronze', icon: '🗿', name: "Пам'ятники",
+                desc: "Монументальне будівництво та спадщина. Споруди міцніші, а територія краще захищена.",
+                style: 'Стиль: довгострокова вигода та захист'
+            },
+            citystate: {
+                type: 'citystate', era: 'bronze', icon: '🏛️', name: 'Місто-держава',
+                desc: 'Перші міста, урбанізація та закони. Більше населення — більше юнітів та доходу.',
+                style: 'Стиль: економіка та населення'
+            }
+        };
+
+        function getPathInfo(pathType) { return PATHS[pathType] || null; }
+        function getPathsForEra(eraId) {
+            const era = ERAS[eraId];
+            if (!era) return [];
+            return era.paths.map(p => PATHS[p]).filter(Boolean);
+        }
+
+        // ================================================================
+        // СТАН
+        // ================================================================
         let mode = "login";
         let currentUsername = "";
         let userGold = 0;
@@ -657,6 +963,7 @@
         let hoveredUnitKey = null;
         let unsubWorld = null;
         let unsubUser = null;
+        let unsubEra = null;
         let viewportReady = false;
         let gameLoopBusy = false;
 
@@ -666,6 +973,7 @@
         let respawnInterval = null;
         let autoHealInterval = null;
         let unitTimeTickInterval = null;
+        let eraBannerInterval = null;
 
         // === CANVAS ===
         const canvas = document.getElementById('hex-canvas');
@@ -686,47 +994,32 @@
         let inboxInitialized = false;
         let showAllEnemyZOC = false;
 
-        // === v6.1.0: НАПРЯМИ ===
+        // === НАПРЯМИ ===
         let myPathType = null;
         let myPathChosenAt = 0;
+        let myPathEra = null;
         let isChoosingPath = false;
         let pendingPathSelection = null;
-                function invalidateColorCache() { playerColorCache = {}; }
-        function generateUnitId() { return 'u_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6); }
 
-        // ================================================================
-        // v6.1.0: НАПРЯМИ РОЗВИТКУ (PATHS)
-        // ================================================================
-        const PATHS = {
-            hunter: {
-                type: 'hunter',
-                icon: '🏹',
-                name: 'Мисливці-збирачі',
-                desc: 'Виживання за рахунок швидкості та мобільності. Ваші воїни швидше переміщаються та краще орієнтуються на місцевості.',
-                style: 'Стиль: мобільність та агресія'
-            },
-            farmer: {
-                type: 'farmer',
-                icon: '🌾',
-                name: 'Землеробство',
-                desc: 'Осіле життя та стабільний розвиток. Ваша економіка міцніша, а ратуша витриваліша до атак.',
-                style: 'Стиль: економіка та захист'
-            },
-            shaman: {
-                type: 'shaman',
-                icon: '🔮',
-                name: 'Шаманізм',
-                desc: "Зв'язок із духами предків. Ритуали дозволяють швидше відновлювати сили та краще розуміти ворогів.",
-                style: 'Стиль: підтримка та відновлення'
-            }
-        };
-        function getPathInfo(pathType) { return PATHS[pathType] || null; }
+        // === ЕПОХИ ===
+        let worldEraCurrent = "stone";
+        let worldEraStartedAt = 0;
+        let worldEraHistory = ["stone"];
+        let worldEraTransition = null; // { toEra, startedAt, endsAt, triggeredBy }
+        let lastKnownEra = "stone"; // для детекту зміни епохи
+
+        function invalidateColorCache() { playerColorCache = {}; }
+        function generateUnitId() { return 'u_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6); }
 
         // ================================================================
         // ФУНКЦІЇ ВИБОРУ НАПРЯМУ
         // ================================================================
         window.selectPathCard = function(pathType) {
             if (!PATHS[pathType]) return;
+            if (PATHS[pathType].era !== worldEraCurrent) {
+                alert('Цей напрям не належить до поточної епохи!');
+                return;
+            }
             pendingPathSelection = pathType;
             document.querySelectorAll('#path-cards-container .path-card').forEach(card => {
                 card.classList.toggle('selected', card.getAttribute('data-path') === pathType);
@@ -746,10 +1039,11 @@
             btn.innerText = 'Збереження...';
             try {
                 await update(ref(db, `users/${currentUsername}`), {
-                    path: { type: chosenType, chosenAt: Date.now() }
+                    path: { type: chosenType, era: worldEraCurrent, chosenAt: Date.now() }
                 });
                 myPathType = chosenType;
                 myPathChosenAt = Date.now();
+                myPathEra = worldEraCurrent;
                 isChoosingPath = false;
                 pendingPathSelection = null;
                 document.getElementById('path-modal').classList.remove('active');
@@ -766,10 +1060,31 @@
         };
 
         window.openPathModal = function() {
-            if (myPathType) return;
+            if (myPathType && myPathEra === worldEraCurrent) return; // вже обрано в цій епосі
             isChoosingPath = true;
             pendingPathSelection = null;
-            document.querySelectorAll('#path-cards-container .path-card').forEach(card => card.classList.remove('selected'));
+
+            const era = ERAS[worldEraCurrent];
+            const eraPaths = getPathsForEra(worldEraCurrent);
+
+            // Заголовок
+            document.getElementById('path-modal-title').innerText = `Оберіть свій шлях`;
+            const subtitle = document.getElementById('path-modal-subtitle');
+            subtitle.innerHTML = `${era.icon} <b style="color:#fbbf24;">${era.name}</b><br>
+                Кожен напрям — це унікальний стиль гри.<br>
+                <b style="color:#fbbf24;" id="path-modal-warn-text">Увага: вибір не можна змінити до кінця епохи!</b>`;
+
+            // Картки
+            const container = document.getElementById('path-cards-container');
+            container.innerHTML = eraPaths.map(p => `
+                <div class="path-card" data-path="${p.type}" onclick="selectPathCard('${p.type}')">
+                    <span class="path-icon">${p.icon}</span>
+                    <div class="path-name">${p.name}</div>
+                    <div class="path-desc">${p.desc}</div>
+                    <div class="path-style">${p.style}</div>
+                </div>
+            `).join('');
+
             const btn = document.getElementById('path-confirm-btn');
             btn.disabled = true;
             btn.innerText = 'Оберіть напрям';
@@ -782,7 +1097,8 @@
             const iconEl = document.getElementById('topbar-path-icon');
             const nameEl = document.getElementById('topbar-path-name');
             if (!badge || !iconEl || !nameEl) return;
-            if (myPathType && PATHS[myPathType]) {
+            const validPath = myPathType && PATHS[myPathType] && myPathEra === worldEraCurrent;
+            if (validPath) {
                 const info = PATHS[myPathType];
                 iconEl.innerText = info.icon;
                 nameEl.innerText = info.name;
@@ -799,34 +1115,59 @@
             hideAllModals();
             const modal = document.getElementById('profile-modal');
             const content = document.getElementById('profile-content');
-            if (!myPathType) {
-                content.innerHTML = `
-                    <div class="info-card" style="text-align:center; color:#94a3b8;">
-                        ⚠️ Напрям ще не обрано.<br><br>
-                        <button class="btn-confirm" onclick="closeProfileModal(); openPathModal();" style="margin-top:8px;">
-                            Оберіть свій шлях
-                        </button>
-                    </div>`;
+            const era = ERAS[worldEraCurrent];
+            const validPath = myPathType && PATHS[myPathType] && myPathEra === worldEraCurrent;
+
+            let html = '';
+
+            // Блок епохи
+            html += `<div class="info-card" style="border-color: #fbbf24;">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                    <span style="font-size: 32px;">${era.icon}</span>
+                    <div>
+                        <div style="font-size: 16px; font-weight: bold; color: #fbbf24;">${era.name}</div>
+                        <div style="font-size: 11px; color: #94a3b8;">Поточна епоха світу</div>
+                    </div>
+                </div>
+                <div class="era-history-list">
+                    ${worldEraHistory.map(e => {
+                        const ei = ERAS[e];
+                        if (!ei) return '';
+                        return `<span class="era-history-chip ${e === worldEraCurrent ? 'current' : ''}">${ei.icon} ${ei.name}</span>`;
+                    }).join('')}
+                </div>
+            </div>`;
+
+            // Блок напряму
+            if (!validPath) {
+                html += `<div class="info-card" style="text-align:center; color:#94a3b8;">
+                    ⚠️ Напрям ще не обрано в цій епосі.<br><br>
+                    <button class="btn-confirm" onclick="closeProfileModal(); openPathModal();" style="margin-top:8px;">
+                        Оберіть свій шлях
+                    </button>
+                </div>`;
             } else {
                 const info = PATHS[myPathType];
                 const chosenDate = myPathChosenAt ? new Date(myPathChosenAt) : null;
                 const dateStr = chosenDate
                     ? `${String(chosenDate.getDate()).padStart(2,'0')}.${String(chosenDate.getMonth()+1).padStart(2,'0')}.${chosenDate.getFullYear()} ${String(chosenDate.getHours()).padStart(2,'0')}:${String(chosenDate.getMinutes()).padStart(2,'0')}`
                     : '—';
-                content.innerHTML = `
-                    <div class="profile-path-hero">
-                        <div class="path-icon">${info.icon}</div>
-                        <div class="path-name">${info.name}</div>
-                        <div class="path-desc">${info.desc}</div>
-                        <div class="path-chosen-at">Обрано: ${dateStr}</div>
-                    </div>
-                    <div class="info-card" style="font-size:11px;">
-                        <b>${info.style}</b><br><br>
-                        <span style="color:#64748b; font-style:italic;">Ефекти напряму будуть додані в наступних оновленнях.</span>
-                    </div>
-                    <button class="btn-confirm" onclick="openAllPathsModal()" style="margin-top:10px;">📜 Переглянути всі шляхи</button>
-                `;
+                html += `<div class="profile-path-hero">
+                    <div class="path-icon">${info.icon}</div>
+                    <div class="path-name">${info.name}</div>
+                    <div class="path-desc">${info.desc}</div>
+                    <div class="path-chosen-at">Обрано: ${dateStr}</div>
+                </div>
+                <div class="info-card" style="font-size:11px;">
+                    <b>${info.style}</b><br><br>
+                    <span style="color:#64748b; font-style:italic;">Ефекти напряму будуть додані в наступних оновленнях.</span>
+                </div>`;
             }
+
+            // Кнопка "Переглянути всі шляхи"
+            html += `<button class="btn-confirm" onclick="openAllPathsModal()" style="margin-top:10px;">📜 Переглянути всі шляхи</button>`;
+
+            content.innerHTML = html;
             modal.style.display = 'block';
         };
 
@@ -835,27 +1176,41 @@
         };
 
         // ================================================================
-        // ПЕРЕГЛЯД УСІХ НАПРЯМІВ (READ-ONLY)
+        // ПЕРЕГЛЯД УСІХ НАПРЯМІВ (групування по епохах)
         // ================================================================
         window.openAllPathsModal = function() {
             const container = document.getElementById('all-paths-cards-container');
-            container.innerHTML = Object.values(PATHS).map(p => {
-                const isCurrent = (p.type === myPathType);
-                return `<div class="path-card readonly ${isCurrent ? 'current' : ''}" data-current-label="Ваш вибір">
-                    <span class="path-icon">${p.icon}</span>
-                    <div class="path-name">${p.name}</div>
-                    <div class="path-desc">${p.desc}</div>
-                    <div class="path-style">${p.style}</div>
+            const eraOrder = Object.values(ERAS).sort((a, b) => a.order - b.order);
+
+            let html = '';
+            eraOrder.forEach(era => {
+                if (!era.paths || era.paths.length === 0) return;
+                const isCurrentEra = era.id === worldEraCurrent;
+                html += `<div style="grid-column: 1 / -1; margin-top: 12px; margin-bottom: 4px; padding: 8px; background: ${isCurrentEra ? 'rgba(251,191,36,0.1)' : 'rgba(56,189,248,0.05)'}; border-radius: 8px; border-left: 3px solid ${isCurrentEra ? '#fbbf24' : '#38bdf8'};">
+                    <b style="color: ${isCurrentEra ? '#fbbf24' : '#38bdf8'}; font-size: 14px;">${era.icon} ${era.name}</b>
+                    ${isCurrentEra ? '<span style="color: #10b981; font-size: 11px; margin-left: 8px;">← поточна</span>' : ''}
                 </div>`;
-            }).join('');
+                era.paths.forEach(pId => {
+                    const p = PATHS[pId];
+                    if (!p) return;
+                    const isMyCurrent = (p.type === myPathType && myPathEra === worldEraCurrent && era.id === worldEraCurrent);
+                    html += `<div class="path-card readonly ${isMyCurrent ? 'current' : ''}" data-current-label="Ваш вибір">
+                        <span class="path-icon">${p.icon}</span>
+                        <div class="path-name">${p.name}</div>
+                        <div class="path-desc">${p.desc}</div>
+                        <div class="path-style">${p.style}</div>
+                    </div>`;
+                });
+            });
+
+            container.innerHTML = html;
             document.getElementById('all-paths-modal').classList.add('active');
         };
 
         window.closeAllPathsModal = function() {
             document.getElementById('all-paths-modal').classList.remove('active');
         };
-
-        // ================================================================
+                    // ================================================================
         // ЕКОНОМІКА
         // ================================================================
         function getGoldCap(username) {
@@ -1008,7 +1363,8 @@
             }
             return out;
         }
-                // ================================================================
+
+        // ================================================================
         // CANVAS VIEWPORT
         // ================================================================
         function resizeCanvas() {
@@ -1689,8 +2045,7 @@
             if (respawnInterval) clearInterval(respawnInterval);
             respawnInterval = setInterval(tryRespawnBarbarians, RESPAWN_CHECK_MS);
         }
-
-        // ================================================================
+                    // ================================================================
         // РЕНДЕР (Canvas)
         // ================================================================
         function getPlayerColor(username) {
@@ -1933,7 +2288,8 @@
             ctx.fillText(`${Math.round(unit.hp || 0)}/${unit.maxHp || 100}`, cx, by + bh - 2);
             ctx.restore();
         }
-                // ================================================================
+
+        // ================================================================
         // FIREBASE LISTENERS
         // ================================================================
         function listenToWorldData() {
@@ -1969,16 +2325,18 @@
                     const wasNull = !myPathType;
                     myPathType = pathData.type;
                     myPathChosenAt = pathData.chosenAt || 0;
+                    myPathEra = pathData.era || 'stone';
                     updatePathBadgeUI();
-                    if (wasNull) {
+                    // Якщо модалка вибору відкрита, а напрям вже є для поточної епохи — закриваємо
+                    if (wasNull && myPathEra === worldEraCurrent) {
                         document.getElementById('path-modal').classList.remove('active');
                         isChoosingPath = false;
                     }
                 } else {
                     myPathType = null;
                     myPathChosenAt = 0;
+                    myPathEra = null;
                     updatePathBadgeUI();
-                    // Якщо є база, але напрям не обрано — показати модалку
                     const hasBase = Object.values(hexWorldData).some(h => h && h.owner === currentUsername && h.type === 'core');
                     if (hasBase && !isChoosingPath) {
                         setTimeout(() => openPathModal(), 500);
@@ -2191,7 +2549,7 @@
             try {
                 await update(ref(db), updates);
                 closeBaseModal();
-                if (!myPathType) setTimeout(() => { if (window.openPathModal) window.openPathModal(); }, 300);
+                if (!myPathType || myPathEra !== worldEraCurrent) setTimeout(() => { if (window.openPathModal) window.openPathModal(); }, 300);
             } catch (err) { alert('Помилка: ' + err.message); }
         };
 
@@ -2473,7 +2831,6 @@
                 modal.style.display = 'block'; return;
             }
 
-            // Мій гекс
             activeSelection = { key, layer: 'cell' };
             const isStart = h.type === 'starter', isPur = h.type === 'purchased', isCore = h.type === 'core';
             const hasM = isMyMilitary(h), hasC = isMyCivilian(h);
@@ -2878,6 +3235,303 @@
             if (!confirm('Видалити?')) return;
             try { await update(ref(db, `users/${currentUsername}/inbox`), { [id]: null }); openInboxModal(); } catch (e) { alert(e.message); }
         };
+                    // ================================================================
+        // ЛОГІКА ЕПОХ
+        // ================================================================
+
+        // Слухач поточного стану епохи в Firebase
+        function listenToEra() {
+            if (unsubEra) unsubEra();
+            unsubEra = onValue(ref(db, 'world_era'), (snapshot) => {
+                if (!snapshot.exists()) {
+                    // Ініціалізуємо епоху, якщо її немає
+                    update(ref(db), {
+                        'world_era/current': 'stone',
+                        'world_era/startedAt': Date.now(),
+                        'world_era/history': ['stone'],
+                        'world_era/transition': null
+                    }).catch(e => console.error('init era:', e));
+                    return;
+                }
+                const data = snapshot.val();
+                const prevEra = worldEraCurrent;
+                worldEraCurrent = data.current || 'stone';
+                worldEraStartedAt = data.startedAt || 0;
+                worldEraHistory = data.history || ['stone'];
+                worldEraTransition = data.transition || null;
+
+                // Оновити бейдж і банер
+                updateEraBadgeUI();
+                updateTransitionBanner();
+                updatePathBadgeUI();
+
+                // Якщо епоха ЗМІНИЛАСЬ — показати модалку вибору нового напряму
+                if (prevEra !== worldEraCurrent && currentUsername) {
+                    console.log(`[Епоха] Зміна: ${prevEra} → ${worldEraCurrent}`);
+                    myPathType = null;
+                    myPathEra = null;
+                    myPathChosenAt = 0;
+                    updatePathBadgeUI();
+                    // Скидаємо модалку і показуємо нову
+                    setTimeout(() => {
+                        hideAllModals();
+                        openPathModal();
+                    }, 500);
+                }
+
+                // Оновити профіль, якщо відкритий
+                const pm = document.getElementById('profile-modal');
+                if (pm && pm.style.display === 'block') openProfileModal();
+
+                // Оновити адмін-модалку, якщо відкрита
+                const am = document.getElementById('admin-era-modal');
+                if (am && am.classList.contains('active')) refreshAdminEraModal();
+            });
+        }
+
+        function updateEraBadgeUI() {
+            const badge = document.getElementById('topbar-era-badge');
+            const iconEl = document.getElementById('topbar-era-icon');
+            const nameEl = document.getElementById('topbar-era-name');
+            if (!badge || !iconEl || !nameEl) return;
+            const era = ERAS[worldEraCurrent];
+            if (!era) return;
+            iconEl.innerText = era.icon;
+            nameEl.innerText = era.name;
+            badge.className = 'era-badge-topbar' + (era.cssClass ? ' ' + era.cssClass : '');
+        }
+
+        function updateTransitionBanner() {
+            const banner = document.getElementById('era-transition-banner');
+            const iconEl = document.getElementById('era-banner-icon');
+            const textEl = document.getElementById('era-banner-text');
+            const timerEl = document.getElementById('era-banner-timer');
+            if (!banner) return;
+
+            if (!worldEraTransition || !worldEraTransition.endsAt) {
+                banner.classList.remove('active', 'urgent');
+                if (eraBannerInterval) { clearInterval(eraBannerInterval); eraBannerInterval = null; }
+                return;
+            }
+
+            const nextEra = ERAS[worldEraTransition.toEra];
+            if (nextEra) {
+                iconEl.innerText = nextEra.icon;
+                textEl.innerText = `До ${nextEra.name}:`;
+            } else {
+                textEl.innerText = 'До нової епохи:';
+            }
+            banner.classList.add('active');
+
+            // Оновити таймер одразу + запустити інтервал
+            const tick = () => {
+                if (!worldEraTransition || !worldEraTransition.endsAt) {
+                    banner.classList.remove('active', 'urgent');
+                    if (eraBannerInterval) { clearInterval(eraBannerInterval); eraBannerInterval = null; }
+                    return;
+                }
+                const remaining = Math.max(0, worldEraTransition.endsAt - Date.now());
+                const h = Math.floor(remaining / 3600000);
+                const m = Math.floor((remaining % 3600000) / 60000);
+                const s = Math.floor((remaining % 60000) / 1000);
+                timerEl.innerText = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+
+                if (remaining < 3600000) banner.classList.add('urgent');
+                else banner.classList.remove('urgent');
+
+                // Якщо час вийшов — фіналізуємо (тільки один клієнт має це зробити; інші отримають через onValue)
+                if (remaining <= 0 && worldEraTransition) {
+                    // Спроба фіналізувати (без await, щоб не блокувати)
+                    finalizeEraTransitionIfNeeded().catch(e => console.error(e));
+                }
+            };
+            tick();
+            if (eraBannerInterval) clearInterval(eraBannerInterval);
+            eraBannerInterval = setInterval(tick, 1000);
+        }
+
+        // Перевірка, чи час фіналізувати (викликається з банера + періодично)
+        async function finalizeEraTransitionIfNeeded() {
+            if (!worldEraTransition || !worldEraTransition.endsAt) return;
+            if (Date.now() < worldEraTransition.endsAt) return;
+            try {
+                await finalizeEraTransition(worldEraTransition.toEra);
+            } catch (e) { console.error('finalize:', e); }
+        }
+
+        // ================================================================
+        // СТАР ТАЙМЕРА ПЕРЕХОДУ
+        // ================================================================
+        async function startEraTransition(toEraId, triggeredBy) {
+            if (!toEraId || !ERAS[toEraId]) { alert('Невідома епоха!'); return; }
+            const now = Date.now();
+            const endsAt = now + ERA_TRANSITION_DURATION_MS;
+            try {
+                await update(ref(db, 'world_era'), {
+                    transition: {
+                        toEra: toEraId,
+                        startedAt: now,
+                        endsAt: endsAt,
+                        triggeredBy: triggeredBy || currentUsername || 'system'
+                    }
+                });
+            } catch (e) { alert('Помилка запуску переходу: ' + e.message); }
+        }
+
+        // ================================================================
+        // ФІНАЛІЗАЦІЯ ПЕРЕХОДУ (перемикання епохи)
+        // ================================================================
+        async function finalizeEraTransition(toEraId) {
+            if (!toEraId || !ERAS[toEraId]) return;
+            const now = Date.now();
+            try {
+                // 1. Оновити world_era
+                const newHistory = [...new Set([...(worldEraHistory || []), toEraId])];
+                const updates = {
+                    'world_era/current': toEraId,
+                    'world_era/startedAt': now,
+                    'world_era/history': newHistory,
+                    'world_era/transition': null
+                };
+
+                // 2. Скинути path всіх гравців (щоб обрали напрям нової епохи)
+                const usersSnap = await get(ref(db, 'users'));
+                if (usersSnap.exists()) {
+                    Object.keys(usersSnap.val()).forEach(u => {
+                        updates[`users/${u}/path`] = null;
+                    });
+                }
+
+                await update(ref(db), updates);
+                console.log(`[Епоха] Фіналізовано перехід у ${toEraId}`);
+            } catch (e) { console.error('finalizeEraTransition:', e); }
+        }
+
+        // ================================================================
+        // ПЕРІОДИЧНА ПЕРЕВІРКА УМОВ ПЕРЕХОДУ
+        // ================================================================
+        function startEraConditionsCheck() {
+            // Поки що умови не задані (transitionConditions: null) — тільки адмін може запускати.
+            // Коли будуть умови — тут буде перевірка.
+            // ПЕРІОДИЧНИЙ виклик finalizeEraTransitionIfNeeded (про всяк випадок, якщо хтось не зайшов)
+            setInterval(() => {
+                if (worldEraTransition && Date.now() >= worldEraTransition.endsAt) {
+                    finalizeEraTransitionIfNeeded().catch(e => console.error(e));
+                }
+            }, 10000);
+        }
+
+        // ================================================================
+        // АДМІН-МОДАЛКА ЕПОХ
+        // ================================================================
+        window.openAdminEraModal = function() {
+            if (!currentUsername || currentUsername.toLowerCase() !== ADMIN_USERNAME.toLowerCase()) {
+                alert('Тільки для адміна!');
+                return;
+            }
+            refreshAdminEraModal();
+            document.getElementById('admin-era-modal').classList.add('active');
+        };
+
+        window.closeAdminEraModal = function() {
+            document.getElementById('admin-era-modal').classList.remove('active');
+        };
+
+        function refreshAdminEraModal() {
+            const era = ERAS[worldEraCurrent];
+            document.getElementById('admin-era-current-name').innerText = era ? `${era.icon} ${era.name}` : '—';
+
+            const startedDate = worldEraStartedAt ? new Date(worldEraStartedAt) : null;
+            document.getElementById('admin-era-started-at').innerText = startedDate
+                ? `${String(startedDate.getDate()).padStart(2,'0')}.${String(startedDate.getMonth()+1).padStart(2,'0')}.${startedDate.getFullYear()} ${String(startedDate.getHours()).padStart(2,'0')}:${String(startedDate.getMinutes()).padStart(2,'0')}`
+                : '—';
+
+            document.getElementById('admin-era-history').innerText =
+                (worldEraHistory || []).map(e => ERAS[e] ? ERAS[e].icon : e).join(' → ') || '—';
+
+            const trSection = document.getElementById('admin-era-transition-section');
+            const nextEra = getNextEra(worldEraCurrent);
+            const forceBtn = document.getElementById('admin-era-btn-force');
+
+            if (worldEraTransition) {
+                trSection.style.display = 'block';
+                const toEra = ERAS[worldEraTransition.toEra];
+                document.getElementById('admin-era-transition-to').innerText = toEra ? `${toEra.icon} ${toEra.name}` : worldEraTransition.toEra;
+
+                const sd = new Date(worldEraTransition.startedAt);
+                document.getElementById('admin-era-transition-started').innerText = `${String(sd.getHours()).padStart(2,'0')}:${String(sd.getMinutes()).padStart(2,'0')}`;
+
+                const rem = Math.max(0, worldEraTransition.endsAt - Date.now());
+                document.getElementById('admin-era-transition-remaining').innerText = formatDuration(rem);
+
+                document.getElementById('admin-era-transition-by').innerText = worldEraTransition.triggeredBy || '—';
+
+                if (forceBtn) { forceBtn.disabled = true; forceBtn.classList.add('btn-era-disabled'); forceBtn.classList.remove('btn-era-next'); }
+            } else {
+                trSection.style.display = 'none';
+                if (forceBtn) {
+                    if (nextEra) {
+                        forceBtn.disabled = false;
+                        forceBtn.classList.remove('btn-era-disabled');
+                        forceBtn.classList.add('btn-era-next');
+                        forceBtn.innerText = `🚀 Примусово почати ${nextEra.name}`;
+                    } else {
+                        forceBtn.disabled = true;
+                        forceBtn.classList.add('btn-era-disabled');
+                        forceBtn.classList.remove('btn-era-next');
+                        forceBtn.innerText = '🚫 Це остання епоха';
+                    }
+                }
+            }
+        }
+
+        window.adminForceNextEra = async function() {
+            const nextEra = getNextEra(worldEraCurrent);
+            if (!nextEra) { alert('Це остання епоха!'); return; }
+            if (worldEraTransition) { alert('Перехід уже запущено!'); return; }
+            if (!confirm(`Примусово запустити 24-годинний перехід у ${nextEra.name}?\n\nВсі напрями гравців буде скинуто після завершення.`)) return;
+            await startEraTransition(nextEra.id, currentUsername);
+            refreshAdminEraModal();
+            alert(`⏳ Перехід у ${nextEra.name} запущено! Через 24 години епоха зміниться.`);
+        };
+
+        window.adminFinalizeTransitionNow = async function() {
+            if (!worldEraTransition) { alert('Немає активного переходу!'); return; }
+            const toEra = ERAS[worldEraTransition.toEra];
+            if (!confirm(`Завершити перехід у ${toEra ? toEra.name : worldEraTransition.toEra} ЗАРАЗ?\n\nВсі напрями буде скинуто.`)) return;
+            await finalizeEraTransition(worldEraTransition.toEra);
+            closeAdminEraModal();
+            alert('✅ Епоху змінено!');
+        };
+
+        window.adminCancelTransition = async function() {
+            if (!worldEraTransition) { alert('Немає активного переходу!'); return; }
+            if (!confirm('Скасувати перехід? Епоха залишиться поточною.')) return;
+            try {
+                await update(ref(db, 'world_era'), { transition: null });
+                refreshAdminEraModal();
+            } catch (e) { alert(e.message); }
+        };
+
+        window.adminResetToStone = async function() {
+            if (!confirm('⚠️ Відкатити світ до епохи каменю?\n\nВсі напрями буде скинуто!')) return;
+            const now = Date.now();
+            try {
+                const updates = {
+                    'world_era/current': 'stone',
+                    'world_era/startedAt': now,
+                    'world_era/history': ['stone'],
+                    'world_era/transition': null
+                };
+                const usersSnap = await get(ref(db, 'users'));
+                if (usersSnap.exists()) {
+                    Object.keys(usersSnap.val()).forEach(u => { updates[`users/${u}/path`] = null; });
+                }
+                await update(ref(db), updates);
+                closeAdminEraModal();
+                alert('🔄 Відкат до епохи каменю виконано!');
+            } catch (e) { alert(e.message); }
+        };
 
         // ================================================================
         // AUTH / BOOTSTRAP
@@ -2911,9 +3565,31 @@
                     invalidateColorCache();
                     lastInboxCount = 0; inboxInitialized = false;
 
+                    // Завантажити світ
                     const wS = await get(child(dbRef, 'world_hexes'));
                     hexWorldData = wS.exists() ? wS.val() : {};
 
+                    // Завантажити епоху
+                    const eraS = await get(child(dbRef, 'world_era'));
+                    if (eraS.exists()) {
+                        const eraData = eraS.val();
+                        worldEraCurrent = eraData.current || 'stone';
+                        worldEraStartedAt = eraData.startedAt || 0;
+                        worldEraHistory = eraData.history || ['stone'];
+                        worldEraTransition = eraData.transition || null;
+                    } else {
+                        // Ініціалізація
+                        await update(ref(db), {
+                            'world_era/current': 'stone',
+                            'world_era/startedAt': Date.now(),
+                            'world_era/history': ['stone'],
+                            'world_era/transition': null
+                        });
+                        worldEraCurrent = 'stone';
+                        worldEraHistory = ['stone'];
+                    }
+
+                    // Офлайн-дохід
                     const ud = s.val();
                     const last = ud.lastOnline || Date.now();
                     const diff = (Date.now() - last) / 60000;
@@ -2930,19 +3606,22 @@
                     document.getElementById('auth-screen').style.display = 'none';
                     document.getElementById('game-container').style.display = 'block';
                     document.getElementById('current-user-display').innerText = user;
-                    document.getElementById('admin-wipe-btn').style.display = (user.toLowerCase() === ADMIN_USERNAME.toLowerCase()) ? 'inline-block' : 'none';
+                    const isAdmin = (user.toLowerCase() === ADMIN_USERNAME.toLowerCase());
+                    document.getElementById('admin-wipe-btn').style.display = isAdmin ? 'inline-block' : 'none';
+                    document.getElementById('admin-era-btn').style.display = isAdmin ? 'inline-block' : 'none';
 
                     setupViewportControls();
                     listenToWorldData();
                     listenToUserData();
+                    listenToEra();
                     startIncomeLoop();
                     startGameLoop();
                     startRespawnLoop();
                     startAutoHealLoop();
                     resetView();
 
-                    // Якщо напрям не обрано, але база є — показати
-                    if (!myPathType) {
+                    // Показати вибір напряму, якщо треба
+                    if (!myPathType || myPathEra !== worldEraCurrent) {
                         const hasBase = Object.values(hexWorldData).some(h => h && h.owner === user && h.type === 'core');
                         if (hasBase) setTimeout(() => { if (window.openPathModal) window.openPathModal(); }, 800);
                     }
@@ -2959,17 +3638,23 @@
 
         window.logout = async function() {
             if (currentUsername) { try { await update(ref(db, `users/${currentUsername}`), { lastOnline: Date.now() }); } catch (e) {} }
-            [incomeInterval, gameLoopInterval, respawnInterval, autoHealInterval, unitTimeTickInterval].forEach(i => i && clearInterval(i));
+            [incomeInterval, gameLoopInterval, respawnInterval, autoHealInterval, unitTimeTickInterval, eraBannerInterval].forEach(i => i && clearInterval(i));
             if (unsubWorld) { unsubWorld(); unsubWorld = null; }
             if (unsubUser) { unsubUser(); unsubUser = null; }
+            if (unsubEra) { unsubEra(); unsubEra = null; }
             showAllEnemyZOC = false; hoveredUnitKey = null; activeSelection = null;
             hexWorldData = {}; currentUsername = ""; playerColorCache = {};
             lastInboxCount = 0; inboxInitialized = false;
-            myPathType = null; myPathChosenAt = 0;
+            myPathType = null; myPathChosenAt = 0; myPathEra = null;
             isChoosingPath = false; pendingPathSelection = null;
+            worldEraCurrent = 'stone'; worldEraHistory = ['stone']; worldEraTransition = null;
             const pm = document.getElementById('path-modal');
             if (pm) pm.classList.remove('active');
+            const am = document.getElementById('admin-era-modal');
+            if (am) am.classList.remove('active');
             updatePathBadgeUI();
+            updateEraBadgeUI();
+            updateTransitionBanner();
 
             document.getElementById('game-container').style.display = 'none';
             document.getElementById('auth-screen').style.display = 'flex';
@@ -2992,7 +3677,7 @@
                     });
                     await update(ref(db), u);
                 }
-                myPathType = null; myPathChosenAt = 0;
+                myPathType = null; myPathChosenAt = 0; myPathEra = null;
                 updatePathBadgeUI();
                 alert("💥 Перезапущено!");
             } catch (e) { alert(e.message); }
@@ -3001,8 +3686,12 @@
         window.addEventListener('load', () => { setTimeout(hideLoader, 600); });
         function hideLoader() { const l = document.getElementById('update-loader'); l.style.opacity = '0'; setTimeout(() => l.style.display = 'none', 500); }
 
+        // ================================================================
+        // BOOTSTRAP
+        // ================================================================
         startUnitTimeTick();
         startAutoHealLoop();
+        startEraConditionsCheck();
     </script>
 </body>
 </html>
